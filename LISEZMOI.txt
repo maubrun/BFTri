@@ -1,0 +1,7 @@
+Deploiement (Netlify CLI, une seule fois) :
+1. Installer Node.js (https://nodejs.org), dezipper ce dossier, ouvrir un terminal dedans.
+2. npm install
+3. npx netlify-cli login
+4. npx netlify-cli link --id ee531afe-3018-4c72-af17-4b81cfcd8b57
+5. npx netlify-cli deploy --build --prod
+Les variables ADMIN_PASSWORD et TOKEN_SECRET sont deja configurees sur le site.
