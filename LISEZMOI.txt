@@ -5,3 +5,4 @@ Deploiement (Netlify CLI, une seule fois) :
 4. npx netlify-cli link --id ee531afe-3018-4c72-af17-4b81cfcd8b57
 5. npx netlify-cli deploy --build --prod
 Les variables ADMIN_PASSWORD et TOKEN_SECRET sont deja configurees sur le site.
+ 
