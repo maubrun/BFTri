@@ -13,6 +13,7 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
  * Administration (mot de passe vérifié ici, jeton signé de 12 h) :
  *   POST /api/admin/login            { password }
  *   POST /api/admin/sortie           { id?, date, time, duree, type, cat, lieu, referent, besoin, participants, note }
+ *   POST /api/admin/sortie/remove    { id }
  *   POST /api/admin/encadrant        { name, niveau }
  *   POST /api/admin/encadrant/remove { id }
  *
@@ -241,6 +242,14 @@ export default async (req: Request, _context: Context) => {
             INSERT INTO sorties (id, jour, heure, duree, type, cat, lieu, referent, besoin, participants, note)
             VALUES (${id}, ${p.date}, ${p.time}, ${p.duree}, ${p.type}, ${p.cat}, ${p.lieu}, ${p.referent}, ${p.besoin}, ${p.participants}, ${p.note})`;
         }
+        return withState();
+      }
+
+      if (route === "admin/sortie/remove") {
+        const id = String(body.id || "");
+        if (!id) throw new HttpError(400, "Requête incomplète.");
+        const rows = await db.sql`DELETE FROM sorties WHERE id = ${id} RETURNING id`;
+        if (!rows.length) throw new HttpError(404, "Créneau introuvable.");
         return withState();
       }
 
