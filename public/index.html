@@ -95,20 +95,21 @@ const catInfo = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES[0];
 const catIdx = (id) => CATEGORIES.findIndex((c) => c.id === id);
 // Horaires et référents par défaut : [mercredi, samedi] (heure de début, durée en minutes)
 const CAT_DEFAULTS = {
-  poussin:  { wed: ["13:15", 105], sat: ["13:45", 135], refs: ["e4", "e11"] },
-  pupille:  { wed: ["13:15", 105], sat: ["13:45", 150], refs: ["e12", "e13"] },
-  benjamin: { wed: ["13:45", 135], sat: ["10:15", 135], refs: ["e14", "e15"] },
-  minime:   { wed: ["15:45", 135], sat: ["13:45", 135], refs: ["e14", "e15"] },
+  poussin:  { wed: ["13:15", 105], sat: ["13:45", 135], refs: ["christophe lefevre", "cristina da silva"] },
+  pupille:  { wed: ["13:15", 105], sat: ["13:45", 150], refs: ["mathieu", "marlie"] },
+  benjamin: { wed: ["13:45", 135], sat: ["10:15", 135], refs: ["evan", "tibo"] },
+  minime:   { wed: ["15:45", 135], sat: ["13:45", 135], refs: ["evan", "tibo"] },
 };
-function slotDefaults(cat, date) {
+function slotDefaults(cat, date, encadrants) {
   const d = CAT_DEFAULTS[cat] || CAT_DEFAULTS.poussin;
   const [time, duree] = date && parseISO(date).getDay() === 6 ? d.sat : d.wed;
-  return { time, duree, referent: d.refs[0], referent2: d.refs[1] };
+  const idOf = (name) => { const e = (encadrants || []).find((x) => x.name.toLowerCase() === name); return e ? e.id : ""; };
+  return { time, duree, referent: idOf(d.refs[0]), referent2: idOf(d.refs[1]) };
 }
 const refNames = (s, byId) => [s.referent, s.referent2].map((id) => id && byId[id] && byId[id].name).filter(Boolean);
 const CAT_BESOIN = { poussin: 4, pupille: 4, benjamin: 4, minime: 6 };
-const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole"];
-const NIVEAU_COLOR = { BF1: "#6E8B74", BF2: "#4E7A51", BF3: "#2F6690", BF4: "#1B4965", BF5: "#1B2430", STAPS: "#7A3B69", "Bénévole": "#B5622A" };
+const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole", "Entraîneur pro", "DEJEPS Triathlon"];
+const NIVEAU_COLOR = { BF1: "#6E8B74", BF2: "#4E7A51", BF3: "#2F6690", BF4: "#1B4965", BF5: "#1B2430", STAPS: "#7A3B69", "Bénévole": "#B5622A", "Entraîneur pro": "#0F766E", "DEJEPS Triathlon": "#9A3412" };
 const LIEUX = ["Nautil", "Torcy", "Vaires"];
 
 const slotStatus = (s) => (s.besoin === 0 ? "annule" : s.inscrits.length >= s.besoin ? "complet" : "ouvert");
@@ -458,8 +459,8 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
   const [err, setErr] = useState("");
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
   const isNew = !f.id;
-  const setCat = (cat) => setF((prev) => ({ ...prev, cat, type: cat === "minime" ? prev.type : "vtt", ...(isNew ? slotDefaults(cat, prev.date) : {}) }));
-  const setDate = (date) => setF((prev) => ({ ...prev, date, ...(isNew && date ? slotDefaults(prev.cat, date) : {}) }));
+  const setCat = (cat) => setF((prev) => ({ ...prev, cat, type: cat === "minime" ? prev.type : "vtt", ...(isNew ? slotDefaults(cat, prev.date, encadrants) : {}) }));
+  const setDate = (date) => setF((prev) => ({ ...prev, date, ...(isNew && date ? slotDefaults(prev.cat, date, encadrants) : {}) }));
   const sortedEnc = [...encadrants].sort((a, b) => a.name.localeCompare(b.name));
   const [busy, setBusy] = useState(false);
   const submit = async () => {
@@ -589,8 +590,8 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
   );
 }
 
-const newSlotDefaults = (date) => ({
-  id: null, date, ...slotDefaults("poussin", date), type: "vtt", cat: "poussin", lieu: "Nautil",
+const newSlotDefaults = (date, encadrants) => ({
+  id: null, date, ...slotDefaults("poussin", date, encadrants), type: "vtt", cat: "poussin", lieu: "Nautil",
   besoin: 4, participants: "", note: "", inscrits: [],
 });
 
@@ -625,7 +626,7 @@ function AdminSlots({ data, actions, byId }) {
 
       {editing === "new" ? (
         <div className="mb-5">
-          <SlotForm title="Nouveau créneau" initial={newSlotDefaults(todayISO)} encadrants={data.encadrants} submitLabel="Créer le créneau"
+          <SlotForm title="Nouveau créneau" initial={newSlotDefaults(todayISO, data.encadrants)} encadrants={data.encadrants} submitLabel="Créer le créneau"
             onCancel={() => setEditing(null)} onSave={async (v) => { await create(v); setEditing(null); }} />
         </div>
       ) : (
@@ -688,7 +689,7 @@ function AdminVacances({ data, actions, byId }) {
               </div>
             ))}
             {editing === newKey ? (
-              <SlotForm title={"Nouveau créneau · " + v.label} initial={newSlotDefaults(v.debut)} encadrants={data.encadrants}
+              <SlotForm title={"Nouveau créneau · " + v.label} initial={newSlotDefaults(v.debut, data.encadrants)} encadrants={data.encadrants}
                 dateMin={v.debut} dateMax={v.fin} submitLabel="Créer le créneau"
                 onCancel={() => setEditing(null)} onSave={async (vals) => { await create(vals); setEditing(null); }} />
             ) : (
@@ -736,7 +737,10 @@ function AdminEncadrants({ data, actions }) {
           <div key={e.id} className="flex items-center gap-3 rounded-2xl border border-[#E2DBC9] bg-white px-4 py-3 shadow-sm">
             <UserCircle2 size={22} className="text-[#B0A98F] shrink-0" />
             <span className="text-[14.5px] font-semibold text-[#1B2430] flex-1">{e.name}</span>
-            <Badge color={NIVEAU_COLOR[e.niveau] || "#8A8371"}>{e.niveau}</Badge>
+            <select value={e.niveau} onChange={(ev) => actions.updateNiveau(e.id, ev.target.value)} aria-label={"Niveau de " + e.name}
+              className="rounded-lg border border-[#E2DBC9] bg-white text-[12px] font-bold py-1 px-1.5 max-w-[8.5rem]" style={{ color: NIVEAU_COLOR[e.niveau] || "#8A8371" }}>
+              {NIVEAUX.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
             {confirmId === e.id ? (
               <button onClick={() => { removeEncadrant(e.id); setConfirmId(null); }} className="text-[12px] font-bold text-white bg-[#B03A2E] rounded-lg px-2.5 py-1.5">Confirmer</button>
             ) : (
@@ -815,6 +819,7 @@ function App() {
     create: (vals) => call("admin/sortie", { ...vals, id: null }),
     toggleCancel: (s) => quiet(call("admin/sortie", slotPayload(s, { besoin: s.besoin === 0 ? CAT_BESOIN[s.cat] : 0 }))),
     removeSlot: (id) => quiet(call("admin/sortie/remove", { id })),
+    updateNiveau: (id, niveau) => quiet(call("admin/encadrant/niveau", { id, niveau })),
     addEncadrant: (name, niveau) => call("admin/encadrant", { name, niveau }),
     removeEncadrant: (id) => quiet(call("admin/encadrant/remove", { id })),
   };
