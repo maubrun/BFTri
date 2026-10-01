@@ -82,7 +82,7 @@ async function loadState(db: any) {
     SELECT s.id,
            to_char(s.jour, 'YYYY-MM-DD') AS date,
            s.heure AS time,
-           s.duree, s.type, s.cat, s.lieu, s.referent, s.besoin, s.participants, s.note,
+           s.duree, s.type, s.cat, s.lieu, s.referent, s.referent2, s.besoin, s.participants, s.note,
            COALESCE(array_agg(i.encadrant_id ORDER BY i.created_at) FILTER (WHERE i.encadrant_id IS NOT NULL), '{}') AS inscrits
     FROM sorties s
     LEFT JOIN inscriptions i ON i.sortie_id = s.id
@@ -106,7 +106,7 @@ function parseSortie(b: any) {
   const cat = String(b.cat || "");
   if (!CATS.includes(cat)) throw new HttpError(400, "Groupe invalide.");
   const type = b.type === "route" ? "route" : "vtt";
-  if (type === "route" && cat !== "minime") throw new HttpError(400, "Seule la catégorie Minime-Junior sort en Route.");
+  if (type === "route" && cat !== "minime") throw new HttpError(400, "Seul le groupe Compet sort en Route.");
   const lieu = String(b.lieu || "").trim().slice(0, 80);
   if (!lieu) throw new HttpError(400, "Le lieu est obligatoire.");
   const duree = toInt(b.duree ?? 120, 15, 600, "Durée");
@@ -117,7 +117,9 @@ function parseSortie(b: any) {
       : toInt(b.participants, 0, 500, "Nombre de jeunes");
   const note = String(b.note || "").trim().slice(0, 200);
   const referent = b.referent ? String(b.referent) : null;
-  return { date, time, cat, type, lieu, duree, besoin, participants, note, referent };
+  const referent2 = b.referent2 ? String(b.referent2) : null;
+  if (referent && referent === referent2) throw new HttpError(400, "Les deux référents doivent être différents.");
+  return { date, time, cat, type, lieu, duree, besoin, participants, note, referent, referent2 };
 }
 
 const minutes = (hhmm: string) => {
@@ -226,21 +228,22 @@ export default async (req: Request, _context: Context) => {
 
       if (route === "admin/sortie") {
         const p = parseSortie(body);
-        if (p.referent) {
-          const ok = await db.sql`SELECT 1 AS x FROM encadrants WHERE id = ${p.referent}`;
+        for (const r of [p.referent, p.referent2]) {
+          if (!r) continue;
+          const ok = await db.sql`SELECT 1 AS x FROM encadrants WHERE id = ${r}`;
           if (!ok.length) throw new HttpError(400, "Référent inconnu.");
         }
         if (body.id) {
           const rows = await db.sql`
             UPDATE sorties SET jour = ${p.date}, heure = ${p.time}, duree = ${p.duree}, type = ${p.type}, cat = ${p.cat},
-                   lieu = ${p.lieu}, referent = ${p.referent}, besoin = ${p.besoin}, participants = ${p.participants}, note = ${p.note}
+                   lieu = ${p.lieu}, referent = ${p.referent}, referent2 = ${p.referent2}, besoin = ${p.besoin}, participants = ${p.participants}, note = ${p.note}
             WHERE id = ${String(body.id)} RETURNING id`;
           if (!rows.length) throw new HttpError(404, "Créneau introuvable.");
         } else {
           const id = "s" + randomUUID().slice(0, 8);
           await db.sql`
-            INSERT INTO sorties (id, jour, heure, duree, type, cat, lieu, referent, besoin, participants, note)
-            VALUES (${id}, ${p.date}, ${p.time}, ${p.duree}, ${p.type}, ${p.cat}, ${p.lieu}, ${p.referent}, ${p.besoin}, ${p.participants}, ${p.note})`;
+            INSERT INTO sorties (id, jour, heure, duree, type, cat, lieu, referent, referent2, besoin, participants, note)
+            VALUES (${id}, ${p.date}, ${p.time}, ${p.duree}, ${p.type}, ${p.cat}, ${p.lieu}, ${p.referent}, ${p.referent2}, ${p.besoin}, ${p.participants}, ${p.note})`;
         }
         return withState();
       }
