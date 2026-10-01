@@ -89,10 +89,23 @@ const CATEGORIES = [
   { id: "poussin", label: "Poussin", color: "#4E7A51" },
   { id: "pupille", label: "Pupille", color: "#2F6690" },
   { id: "benjamin", label: "Benjamin", color: "#B5622A" },
-  { id: "minime", label: "Minime-Junior", color: "#7A3B69" },
+  { id: "minime", label: "Compet", color: "#7A3B69" },
 ];
 const catInfo = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES[0];
 const catIdx = (id) => CATEGORIES.findIndex((c) => c.id === id);
+// Horaires et référents par défaut : [mercredi, samedi] (heure de début, durée en minutes)
+const CAT_DEFAULTS = {
+  poussin:  { wed: ["13:15", 105], sat: ["13:45", 135], refs: ["e4", "e11"] },
+  pupille:  { wed: ["13:15", 105], sat: ["13:45", 150], refs: ["e12", "e13"] },
+  benjamin: { wed: ["13:45", 135], sat: ["10:15", 135], refs: ["e14", "e15"] },
+  minime:   { wed: ["15:45", 135], sat: ["13:45", 135], refs: ["e14", "e15"] },
+};
+function slotDefaults(cat, date) {
+  const d = CAT_DEFAULTS[cat] || CAT_DEFAULTS.poussin;
+  const [time, duree] = date && parseISO(date).getDay() === 6 ? d.sat : d.wed;
+  return { time, duree, referent: d.refs[0], referent2: d.refs[1] };
+}
+const refNames = (s, byId) => [s.referent, s.referent2].map((id) => id && byId[id] && byId[id].name).filter(Boolean);
 const CAT_BESOIN = { poussin: 4, pupille: 4, benjamin: 4, minime: 6 };
 const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole"];
 const NIVEAU_COLOR = { BF1: "#6E8B74", BF2: "#4E7A51", BF3: "#2F6690", BF4: "#1B4965", BF5: "#1B2430", STAPS: "#7A3B69", "Bénévole": "#B5622A" };
@@ -113,7 +126,7 @@ function buildICS(list, byId) {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//BFTRI//Encadrement jeunes//FR", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
   list.forEach((s) => {
-    const ref = s.referent && byId[s.referent] ? byId[s.referent].name : "à définir";
+    const ref = refNames(s, byId).join(" et ") || "à définir";
     lines.push(
       "BEGIN:VEVENT",
       `UID:${s.id}-${s.date}@bftri-encadrement`,
@@ -122,7 +135,7 @@ function buildICS(list, byId) {
       `DTEND:${icsDT(s.date, s.time, s.duree || 120)}`,
       `SUMMARY:${icsEscape("BFTRI - Encadrement " + (s.type === "vtt" ? "VTT" : "Route") + " " + catInfo(s.cat).label)}`,
       `LOCATION:${icsEscape(s.lieu)}`,
-      `DESCRIPTION:${icsEscape("Référent : " + ref)}`,
+      `DESCRIPTION:${icsEscape((refNames(s, byId).length > 1 ? "Référents : " : "Référent : ") + ref)}`,
       "END:VEVENT"
     );
   });
@@ -221,7 +234,8 @@ function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, o
   const ci = catInfo(s.cat);
   const mine = s.inscrits.includes(me);
   const st = slotStatus(s);
-  const ref = s.referent && byId[s.referent] ? byId[s.referent].name : "À définir";
+  const refs = refNames(s, byId);
+  const ref = refs.join(" et ") || "À définir";
   const names = s.inscrits.map((id) => byId[id] && byId[id].name).filter(Boolean);
   const vac = vacancesFor(s.date);
   return (
@@ -247,7 +261,7 @@ function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, o
         <div className="border-t border-[#EEE8DA] px-4 py-3 bg-[#FBF9F3]">
           <div className="flex items-center gap-1.5 text-[13px] text-[#5B5648] mb-1"><MapPin size={13} /> {s.lieu}</div>
           <div className="flex items-center gap-1.5 text-[13px] text-[#5B5648] mb-1"><Clock size={13} /> {fmtTime(s.time)} – {endTime(s)}</div>
-          <div className="flex items-center gap-1.5 text-[13px] text-[#5B5648] mb-1"><ShieldCheck size={13} /> Référent : {ref}</div>
+          <div className="flex items-center gap-1.5 text-[13px] text-[#5B5648] mb-1"><ShieldCheck size={13} /> {refs.length > 1 ? "Référents" : "Référent"} : {ref}</div>
           {s.participants != null && <div className="flex items-center gap-1.5 text-[13px] text-[#5B5648] mb-1"><UsersIcon size={13} /> {s.participants} jeune{s.participants > 1 ? "s" : ""} attendu{s.participants > 1 ? "s" : ""}</div>}
           {vac && <div className="mb-1"><Badge color="#2F6690">Vacances scolaires · {vac.label}</Badge></div>}
           {s.note && <p className="text-[13px] text-[#B03A2E] font-semibold mb-1">{s.note}</p>}
@@ -443,7 +457,9 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
   const [f, setF] = useState(initial);
   const [err, setErr] = useState("");
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
-  const setCat = (cat) => setF((prev) => ({ ...prev, cat, type: cat === "minime" ? prev.type : "vtt" }));
+  const isNew = !f.id;
+  const setCat = (cat) => setF((prev) => ({ ...prev, cat, type: cat === "minime" ? prev.type : "vtt", ...(isNew ? slotDefaults(cat, prev.date) : {}) }));
+  const setDate = (date) => setF((prev) => ({ ...prev, date, ...(isNew && date ? slotDefaults(prev.cat, date) : {}) }));
   const sortedEnc = [...encadrants].sort((a, b) => a.name.localeCompare(b.name));
   const [busy, setBusy] = useState(false);
   const submit = async () => {
@@ -457,6 +473,7 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
       besoin: Math.max(0, parseInt(f.besoin, 10) || 0),
       participants: f.participants === "" || f.participants == null ? null : Math.max(0, parseInt(f.participants, 10) || 0),
       referent: f.referent || null,
+      referent2: f.referent2 || null,
       note: String(f.note || "").trim(),
     }); } catch (e) { setErr(e.message); setBusy(false); }
   };
@@ -468,7 +485,7 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Date" className="col-span-2">
-          <input type="date" value={f.date} min={dateMin} max={dateMax} onChange={(e) => set("date", e.target.value)} className={inputCls} />
+          <input type="date" value={f.date} min={dateMin} max={dateMax} onChange={(e) => setDate(e.target.value)} className={inputCls} />
         </Field>
         <Field label="Heure"><input type="time" value={f.time} onChange={(e) => set("time", e.target.value)} className={inputCls} /></Field>
         <Field label="Durée (min)"><input type="number" min="15" step="15" value={f.duree} onChange={(e) => set("duree", e.target.value)} className={inputCls} /></Field>
@@ -482,14 +499,20 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
             <option value="vtt">VTT</option>
             {f.cat === "minime" && <option value="route">Route</option>}
           </select>
-          {f.cat !== "minime" && <span className="block text-[11.5px] text-[#8A8371] mt-1">Seule la catégorie Minime-Junior sort en Route.</span>}
+          {f.cat !== "minime" && <span className="block text-[11.5px] text-[#8A8371] mt-1">Seul le groupe Compet sort en Route.</span>}
         </Field>
         <Field label="Lieu de rendez-vous" className="col-span-2">
           <input list="lieux-list" value={f.lieu} onChange={(e) => set("lieu", e.target.value)} placeholder="Nautil, Torcy, Vaires…" className={inputCls} />
           <datalist id="lieux-list">{LIEUX.map((l) => <option key={l} value={l} />)}</datalist>
         </Field>
-        <Field label="Référent du groupe" className="col-span-2">
+        <Field label="Référent 1" className="col-span-2">
           <select value={f.referent || ""} onChange={(e) => set("referent", e.target.value)} className={inputCls}>
+            <option value="">À définir</option>
+            {sortedEnc.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Référent 2" className="col-span-2">
+          <select value={f.referent2 || ""} onChange={(e) => set("referent2", e.target.value)} className={inputCls}>
             <option value="">À définir</option>
             {sortedEnc.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
@@ -516,7 +539,8 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
   const ci = catInfo(s.cat);
   const annule = s.besoin === 0;
   const missing = s.besoin - s.inscrits.length;
-  const ref = s.referent && byId[s.referent] ? byId[s.referent].name : "À définir";
+  const refs = refNames(s, byId);
+  const ref = refs.join(" et ") || "À définir";
   const names = s.inscrits.map((id) => byId[id] && byId[id].name).filter(Boolean);
   const vac = vacancesFor(s.date);
   return (
@@ -535,7 +559,7 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
         {annule ? <Badge color="#B03A2E">Annulé</Badge> : <CoverageBar inscrits={s.inscrits.length} besoin={s.besoin} />}
       </div>
       <div className="text-[12.5px] text-[#5B5648] flex items-center gap-1.5 mb-0.5"><MapPin size={12} /> {s.lieu}</div>
-      <div className="text-[12.5px] text-[#5B5648] flex items-center gap-1.5 mb-0.5"><ShieldCheck size={12} /> Référent : {ref}</div>
+      <div className="text-[12.5px] text-[#5B5648] flex items-center gap-1.5 mb-0.5"><ShieldCheck size={12} /> {refs.length > 1 ? "Référents" : "Référent"} : {ref}</div>
       {s.participants != null && <div className="text-[12.5px] text-[#5B5648] flex items-center gap-1.5 mb-0.5"><UsersIcon size={12} /> {s.participants} jeune{s.participants > 1 ? "s" : ""}</div>}
       {s.note && <div className="text-[12.5px] text-[#B03A2E] font-semibold mb-0.5">{s.note}</div>}
       <div className="flex flex-wrap gap-1.5 mt-2">
@@ -566,8 +590,8 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
 }
 
 const newSlotDefaults = (date) => ({
-  id: null, date, time: "13:45", duree: 120, type: "vtt", cat: "poussin", lieu: "Nautil",
-  referent: "", besoin: 4, participants: "", note: "", inscrits: [],
+  id: null, date, ...slotDefaults("poussin", date), type: "vtt", cat: "poussin", lieu: "Nautil",
+  besoin: 4, participants: "", note: "", inscrits: [],
 });
 
 function AdminSlots({ data, actions, byId }) {
@@ -783,7 +807,7 @@ function App() {
     }
   };
   const quiet = (p) => p.catch((e) => setNotice(e.message));
-  const slotPayload = (s, extra) => ({ id: s.id, date: s.date, time: s.time, duree: s.duree, type: s.type, cat: s.cat, lieu: s.lieu, referent: s.referent || null, besoin: s.besoin, participants: s.participants, note: s.note, ...extra });
+  const slotPayload = (s, extra) => ({ id: s.id, date: s.date, time: s.time, duree: s.duree, type: s.type, cat: s.cat, lieu: s.lieu, referent: s.referent || null, referent2: s.referent2 || null, besoin: s.besoin, participants: s.participants, note: s.note, ...extra });
   const actions = {
     register: (sortieId, encadrantId) => call("register", { sortieId, encadrantId }),
     unregister: (sortieId, encadrantId) => call("unregister", { sortieId, encadrantId }),
