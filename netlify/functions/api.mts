@@ -15,13 +15,14 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
  *   POST /api/admin/sortie           { id?, date, time, duree, type, cat, lieu, referent, besoin, participants, note }
  *   POST /api/admin/sortie/remove    { id }
  *   POST /api/admin/encadrant        { name, niveau }
+ *   POST /api/admin/encadrant/niveau { id, niveau }
  *   POST /api/admin/encadrant/remove { id }
  *
  * Variables d'environnement requises : ADMIN_PASSWORD, TOKEN_SECRET.
  */
 
 const CATS = ["poussin", "pupille", "benjamin", "minime"];
-const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole"];
+const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole", "Entraîneur pro", "DEJEPS Triathlon"];
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
 class HttpError extends Error {
@@ -264,6 +265,14 @@ export default async (req: Request, _context: Context) => {
         if (dup.length) throw new HttpError(409, "Cette personne existe déjà.");
         const id = "e" + randomUUID().slice(0, 8);
         await db.sql`INSERT INTO encadrants (id, name, niveau) VALUES (${id}, ${name}, ${niveau})`;
+        return withState();
+      }
+
+      if (route === "admin/encadrant/niveau") {
+        const id = String(body.id || "");
+        if (!id || !NIVEAUX.includes(body.niveau)) throw new HttpError(400, "Requête invalide.");
+        const rows = await db.sql`UPDATE encadrants SET niveau = ${body.niveau} WHERE id = ${id} RETURNING id`;
+        if (!rows.length) throw new HttpError(404, "Encadrant introuvable.");
         return withState();
       }
 
