@@ -104,16 +104,35 @@ function slotDefaults(cat, date, encadrants) {
   const d = CAT_DEFAULTS[cat] || CAT_DEFAULTS.poussin;
   const [time, duree] = date && parseISO(date).getDay() === 6 ? d.sat : d.wed;
   const idOf = (name) => { const e = (encadrants || []).find((x) => x.name.toLowerCase() === name); return e ? e.id : ""; };
-  return { time, duree, referent: idOf(d.refs[0]), referent2: idOf(d.refs[1]) };
+  return { time, duree, referent: idOf(d.refs[0]), referent2: idOf(d.refs[1]), besoin: CAT_BESOIN[cat] };
 }
 const refNames = (s, byId) => [s.referent, s.referent2].map((id) => id && byId[id] && byId[id].name).filter(Boolean);
-const CAT_BESOIN = { poussin: 4, pupille: 4, benjamin: 4, minime: 6 };
+const CAT_BESOIN = { poussin: 3, pupille: 3, benjamin: 2, minime: 4 }; // référents inclus
 const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole", "Entraîneur pro", "DEJEPS Triathlon"];
 const NIVEAU_COLOR = { BF1: "#6E8B74", BF2: "#4E7A51", BF3: "#2F6690", BF4: "#1B4965", BF5: "#1B2430", STAPS: "#7A3B69", "Bénévole": "#B5622A", "Entraîneur pro": "#0F766E", "DEJEPS Triathlon": "#9A3412" };
 const LIEUX = ["Nautil", "Torcy", "Vaires"];
 
-const slotStatus = (s) => (s.besoin === 0 ? "annule" : s.inscrits.length >= s.besoin ? "complet" : "ouvert");
+// Les référents comptent dans le nombre d'encadrants requis.
+const presents = (s) => [...new Set([s.referent, s.referent2, ...s.inscrits].filter(Boolean))];
+const isRefOf = (s, id) => !!id && (s.referent === id || s.referent2 === id);
+const slotStatus = (s) => (s.besoin === 0 ? "annule" : presents(s).length >= s.besoin ? "complet" : "ouvert");
 const sortSlots = (a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || catIdx(a.cat) - catIdx(b.cat);
+
+
+/* ---------- Créneaux urgents (manque de monde dans les 48 h) ---------- */
+const URGENT_HOURS = 48;
+const startMs = (s) => { const [y, m, d] = s.date.split("-").map(Number); const [hh, mm] = s.time.split(":").map(Number); return new Date(y, m - 1, d, hh, mm).getTime(); };
+const manque = (s) => Math.max(0, s.besoin - presents(s).length);
+const urgentSlots = (sorties) => {
+  const now = Date.now();
+  return sorties
+    .filter((s) => s.besoin > 0 && manque(s) > 0 && startMs(s) > now && startMs(s) - now <= URGENT_HOURS * 3600000)
+    .sort(sortSlots);
+};
+const shareText = (list) =>
+  "🚨 BFTRI – Encadrants recherchés (" + list.length + " créneau" + (list.length > 1 ? "x" : "") + ")\n\n" +
+  list.map((s) => "• " + fmtDate(s.date) + " " + fmtTime(s.time) + "–" + endTime(s) + " · " + catInfo(s.cat).label + " (" + s.lieu + ") : il manque " + manque(s) + " encadrant" + (manque(s) > 1 ? "s" : "")).join("\n") +
+  "\n\nInscris-toi ici : " + location.origin;
 
 /* ---------- Export agenda (.ics) ---------- */
 const icsEscape = (s) => String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
@@ -233,11 +252,12 @@ const groupByDate = (list) => list.reduce((acc, s) => { (acc[s.date] = acc[s.dat
    ===================================================================== */
 function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, onExport }) {
   const ci = catInfo(s.cat);
-  const mine = s.inscrits.includes(me);
+  const mine = presents(s).includes(me);
+  const amRef = isRefOf(s, me);
   const st = slotStatus(s);
   const refs = refNames(s, byId);
   const ref = refs.join(" et ") || "À définir";
-  const names = s.inscrits.map((id) => byId[id] && byId[id].name).filter(Boolean);
+  const names = presents(s).map((id) => byId[id] && (byId[id].name + (isRefOf(s, id) ? " (réf.)" : ""))).filter(Boolean);
   const vac = vacancesFor(s.date);
   return (
     <div className={"rounded-2xl border border-[#E2DBC9] bg-white shadow-sm overflow-hidden " + (st === "annule" ? "opacity-70" : "")}>
@@ -256,7 +276,7 @@ function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, o
           ? <Badge color="#B03A2E">Annulé</Badge>
           : mine
             ? <span className="flex items-center gap-1 text-[12px] font-bold text-[#4E7A51] shrink-0"><Check size={14} /> Inscrit</span>
-            : <CoverageBar inscrits={s.inscrits.length} besoin={s.besoin} />}
+            : <CoverageBar inscrits={presents(s).length} besoin={s.besoin} />}
       </button>
       {open && (
         <div className="border-t border-[#EEE8DA] px-4 py-3 bg-[#FBF9F3]">
@@ -266,7 +286,7 @@ function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, o
           {s.participants != null && <div className="flex items-center gap-1.5 text-[13px] text-[#5B5648] mb-1"><UsersIcon size={13} /> {s.participants} jeune{s.participants > 1 ? "s" : ""} attendu{s.participants > 1 ? "s" : ""}</div>}
           {vac && <div className="mb-1"><Badge color="#2F6690">Vacances scolaires · {vac.label}</Badge></div>}
           {s.note && <p className="text-[13px] text-[#B03A2E] font-semibold mb-1">{s.note}</p>}
-          <p className="text-[11.5px] font-bold text-[#8A8371] mt-2 mb-1.5 uppercase tracking-wide">Encadrants inscrits ({s.inscrits.length}/{s.besoin})</p>
+          <p className="text-[11.5px] font-bold text-[#8A8371] mt-2 mb-1.5 uppercase tracking-wide">Encadrants présents ({presents(s).length}/{s.besoin}, référents inclus)</p>
           <div className="flex flex-wrap gap-1.5 mb-3">
             {names.length === 0 && <span className="text-[13px] text-[#C1652F] font-medium">Personne pour l'instant</span>}
             {names.map((n) => <span key={n} className="rounded-full bg-white border border-[#E2DBC9] px-2.5 py-1 text-[12px] text-[#1B2430] font-medium">{n}</span>)}
@@ -276,7 +296,9 @@ function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, o
           ) : mine ? (
             <div className="flex flex-col gap-2">
               <button onClick={onExport} className={btnPrimary + " flex items-center justify-center gap-2"}><CalendarPlus size={16} /> Ajouter à mon agenda</button>
-              <button onClick={onUnregister} className={btnGhost}>Me désinscrire</button>
+              {amRef
+                ? <p className="text-[12.5px] text-[#5B5648] text-center">Tu es référent de ce créneau.</p>
+                : <button onClick={onUnregister} className={btnGhost}>Me désinscrire</button>}
             </div>
           ) : st === "complet" ? (
             <p className="text-[13px] font-bold text-[#8A8371]">Créneau complet</p>
@@ -285,6 +307,39 @@ function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, o
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+function UrgentBanner({ sorties, onOpen }) {
+  const list = useMemo(() => urgentSlots(sorties), [sorties]);
+  const [copied, setCopied] = useState(false);
+  if (list.length === 0) return null;
+  const txt = shareText(list);
+  const whatsapp = () => window.open("https://wa.me/?text=" + encodeURIComponent(txt), "_blank");
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(txt); setCopied(true); setTimeout(() => setCopied(false), 2500); }
+    catch (e) { window.prompt("Copie ce message :", txt); }
+  };
+  return (
+    <div className="rounded-2xl border-2 border-[#B03A2E] bg-[#FCEDEA] px-4 py-3 mb-4">
+      <div className="flex items-center gap-1.5 text-[13px] font-bold text-[#B03A2E] uppercase tracking-wide mb-2">
+        <AlertTriangle size={15} /> Urgent · il manque du monde ({list.length})
+      </div>
+      <div className="flex flex-col gap-1.5 mb-3">
+        {list.map((s) => (
+          <button key={s.id} onClick={onOpen ? () => onOpen(s) : undefined}
+            className="text-left text-[13.5px] text-[#1B2430] leading-snug">
+            <span className="font-bold">{fmtDate(s.date)} {fmtTime(s.time)}</span> · {catInfo(s.cat).label} · {s.lieu}
+            <span className="font-bold text-[#B03A2E]"> — manque {manque(s)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={whatsapp} className="flex-1 rounded-xl bg-[#1FA855] text-white font-bold text-[13.5px] py-2">Partager sur WhatsApp</button>
+        <button onClick={copy} className={btnGhost + " !py-2 !text-[13px]"}>{copied ? "Copié ✓" : "Copier"}</button>
+      </div>
     </div>
   );
 }
@@ -303,14 +358,14 @@ function UserView({ data, actions, me, setIdentity, byId }) {
   }, [toast]);
 
   const upcoming = useMemo(() => data.sorties.filter(isUpcoming).sort(sortSlots), [data.sorties]);
-  const mineAll = useMemo(() => data.sorties.filter((s) => me && s.inscrits.includes(me)), [data.sorties, me]);
+  const mineAll = useMemo(() => data.sorties.filter((s) => me && presents(s).includes(me)), [data.sorties, me]);
   const libres = useMemo(
     () => upcoming.filter((s) =>
-      s.besoin > 0 && s.inscrits.length < s.besoin && !(me && s.inscrits.includes(me)) &&
+      s.besoin > 0 && presents(s).length < s.besoin && !(me && presents(s).includes(me)) &&
       !mineAll.some((m) => m.besoin > 0 && overlaps(m, s))),
     [upcoming, mineAll, me]
   );
-  const mes = useMemo(() => upcoming.filter((s) => me && s.inscrits.includes(me)), [upcoming, me]);
+  const mes = useMemo(() => upcoming.filter((s) => me && presents(s).includes(me)), [upcoming, me]);
 
   if (!me) {
     const sorted = [...data.encadrants].sort((a, b) => a.name.localeCompare(b.name));
@@ -362,6 +417,8 @@ function UserView({ data, actions, me, setIdentity, byId }) {
         </div>
         <button onClick={() => setIdentity(null)} className="text-[13px] text-[#C1652F] font-bold">Changer</button>
       </div>
+
+      <UrgentBanner sorties={data.sorties} onOpen={(s) => { setTab("libres"); setCat("all"); setMonth("all"); setOpenId(s.id); }} />
 
       <div className="flex rounded-xl bg-[#EEE8DA] p-1 mb-4">
         {[{ id: "libres", label: `À pourvoir (${libres.length})` }, { id: "mes", label: `Mes créneaux (${mes.length})` }].map((t) => (
@@ -518,7 +575,7 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
             {sortedEnc.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </Field>
-        <Field label="Encadrants requis">
+        <Field label="Encadrants requis (référents inclus)">
           <input type="number" min="0" value={f.besoin} onChange={(e) => set("besoin", e.target.value)} className={inputCls} />
         </Field>
         <Field label="Jeunes attendus">
@@ -539,7 +596,7 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const ci = catInfo(s.cat);
   const annule = s.besoin === 0;
-  const missing = s.besoin - s.inscrits.length;
+  const missing = s.besoin - presents(s).length;
   const refs = refNames(s, byId);
   const ref = refs.join(" et ") || "À définir";
   const names = s.inscrits.map((id) => byId[id] && byId[id].name).filter(Boolean);
@@ -557,7 +614,7 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
             {vac && <Badge color="#2F6690">Vacances</Badge>}
           </div>
         </div>
-        {annule ? <Badge color="#B03A2E">Annulé</Badge> : <CoverageBar inscrits={s.inscrits.length} besoin={s.besoin} />}
+        {annule ? <Badge color="#B03A2E">Annulé</Badge> : <CoverageBar inscrits={presents(s).length} besoin={s.besoin} />}
       </div>
       <div className="text-[12.5px] text-[#5B5648] flex items-center gap-1.5 mb-0.5"><MapPin size={12} /> {s.lieu}</div>
       <div className="text-[12.5px] text-[#5B5648] flex items-center gap-1.5 mb-0.5"><ShieldCheck size={12} /> {refs.length > 1 ? "Référents" : "Référent"} : {ref}</div>
@@ -592,7 +649,7 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
 
 const newSlotDefaults = (date, encadrants) => ({
   id: null, date, ...slotDefaults("poussin", date, encadrants), type: "vtt", cat: "poussin", lieu: "Nautil",
-  besoin: 4, participants: "", note: "", inscrits: [],
+  participants: "", note: "", inscrits: [],
 });
 
 function AdminSlots({ data, actions, byId }) {
@@ -608,11 +665,12 @@ function AdminSlots({ data, actions, byId }) {
   const monthSel = month === "all" || (month && months.includes(month)) ? month : months[0] || "all";
   const visible = monthSel === "all" ? catFiltered : catFiltered.filter((s) => monthKey(s.date) === monthSel);
   const groups = groupByDate(visible);
-  const understaffed = list.filter((s) => s.besoin > 0 && s.inscrits.length < s.besoin).length;
+  const understaffed = list.filter((s) => s.besoin > 0 && presents(s).length < s.besoin).length;
 
   return (
     <div>
       <h2 className="font-display text-[21px] text-[#1B2430] mb-1">Besoins d'encadrement</h2>
+      <UrgentBanner sorties={data.sorties} />
       {understaffed > 0 && (
         <div className="flex items-center gap-1.5 text-[13px] text-[#C1652F] font-bold mb-3">
           <AlertTriangle size={14} /> {understaffed} créneau{understaffed > 1 ? "x" : ""} à compléter

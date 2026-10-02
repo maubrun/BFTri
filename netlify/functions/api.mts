@@ -133,7 +133,7 @@ async function register(db: any, sortieId: string, encadrantId: string) {
   const client = await db.pool.connect();
   try {
     await client.query("BEGIN");
-    const found = await client.query("SELECT to_char(jour,'YYYY-MM-DD') AS jour, heure, duree, besoin FROM sorties WHERE id = $1 FOR UPDATE", [sortieId]);
+    const found = await client.query("SELECT to_char(jour,'YYYY-MM-DD') AS jour, heure, duree, besoin, referent, referent2 FROM sorties WHERE id = $1 FOR UPDATE", [sortieId]);
     const s = found.rows[0];
     if (!s) {
       await client.query("ROLLBACK");
@@ -147,15 +147,25 @@ async function register(db: any, sortieId: string, encadrantId: string) {
 
     let reason: string | null = null;
     if (s.besoin === 0) reason = "Ce créneau vient d'être annulé.";
+    if (!reason && (s.referent === encadrantId || s.referent2 === encadrantId)) reason = "Tu es déjà référent de ce créneau.";
     if (!reason) {
-      const c = await client.query("SELECT count(*)::int AS n FROM inscriptions WHERE sortie_id = $1", [sortieId]);
+      // Les référents comptent dans le nombre d'encadrants requis.
+      const c = await client.query(
+        `SELECT count(*)::int AS n FROM (
+           SELECT encadrant_id AS id FROM inscriptions WHERE sortie_id = $1
+           UNION SELECT $2::text WHERE $2::text IS NOT NULL
+           UNION SELECT $3::text WHERE $3::text IS NOT NULL) t`,
+        [sortieId, s.referent, s.referent2]
+      );
       if (c.rows[0].n >= s.besoin) reason = "Ce créneau vient d'être complété.";
     }
     if (!reason) {
       const start = minutes(s.heure);
       const clash = await client.query(
-        `SELECT 1 FROM inscriptions i JOIN sorties o ON o.id = i.sortie_id
-         WHERE i.encadrant_id = $1 AND o.jour = $2::date AND o.id <> $3 AND o.besoin > 0
+        `SELECT 1 FROM sorties o
+         WHERE o.jour = $2::date AND o.id <> $3 AND o.besoin > 0
+           AND (o.referent = $1 OR o.referent2 = $1
+                OR EXISTS (SELECT 1 FROM inscriptions i WHERE i.sortie_id = o.id AND i.encadrant_id = $1))
            AND (split_part(o.heure, ':', 1)::int * 60 + split_part(o.heure, ':', 2)::int) < $4::int + $5::int
            AND $4::int < (split_part(o.heure, ':', 1)::int * 60 + split_part(o.heure, ':', 2)::int) + o.duree
          LIMIT 1`,
