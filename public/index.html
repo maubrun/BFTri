@@ -769,6 +769,15 @@ function AdminEncadrants({ data, actions }) {
   const [niveau, setNiveau] = useState("Bénévole");
   const [err, setErr] = useState("");
   const [confirmId, setConfirmId] = useState(null);
+  const [editId, setEditId] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editErr, setEditErr] = useState("");
+  const startEdit = (e) => { setEditId(e.id); setEditName(e.name); setEditErr(""); setConfirmId(null); };
+  const saveEdit = async () => {
+    const n = editName.trim().replace(/\s+/g, " ");
+    if (!n) { setEditErr("Indique un nom."); return; }
+    try { await actions.renameEncadrant(editId, n); setEditId(null); setEditErr(""); } catch (e) { setEditErr(e.message); }
+  };
   const add = async () => {
     const n = name.trim();
     if (!n) { setErr("Indique un nom."); return; }
@@ -794,16 +803,32 @@ function AdminEncadrants({ data, actions }) {
         {sorted.map((e) => (
           <div key={e.id} className="flex items-center gap-3 rounded-2xl border border-[#E2DBC9] bg-white px-4 py-3 shadow-sm">
             <UserCircle2 size={22} className="text-[#B0A98F] shrink-0" />
-            <span className="text-[14.5px] font-semibold text-[#1B2430] flex-1">{e.name}</span>
-            <select value={e.niveau} onChange={(ev) => actions.updateNiveau(e.id, ev.target.value)} aria-label={"Niveau de " + e.name}
+            {editId === e.id ? (
+              <div className="flex-1 min-w-0">
+                <input value={editName} onChange={(ev) => { setEditName(ev.target.value); setEditErr(""); }} autoFocus aria-label={"Nom de " + e.name}
+                  onKeyDown={(ev) => { if (ev.key === "Enter") saveEdit(); if (ev.key === "Escape") setEditId(null); }}
+                  className={inputCls + " !py-1.5"} />
+                {editErr && <p className="text-[12px] font-bold text-[#B03A2E] mt-1">{editErr}</p>}
+                <div className="flex gap-3 mt-1.5">
+                  <button onClick={saveEdit} className="text-[12px] font-bold text-white bg-[#1B2430] rounded-lg px-2.5 py-1.5">Enregistrer</button>
+                  <button onClick={() => setEditId(null)} className="text-[12px] font-bold text-[#8A8371]">Annuler</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <span className="text-[14.5px] font-semibold text-[#1B2430] flex-1">{e.name}</span>
+                <button onClick={() => startEdit(e)} className="text-[12px] font-bold text-[#C1652F]">Renommer</button>
+              </>
+            )}
+            {editId !== e.id && <select value={e.niveau} onChange={(ev) => actions.updateNiveau(e.id, ev.target.value)} aria-label={"Niveau de " + e.name}
               className="rounded-lg border border-[#E2DBC9] bg-white text-[12px] font-bold py-1 px-1.5 max-w-[8.5rem]" style={{ color: NIVEAU_COLOR[e.niveau] || "#8A8371" }}>
               {NIVEAUX.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-            {confirmId === e.id ? (
+            </select>}
+            {editId !== e.id && (confirmId === e.id ? (
               <button onClick={() => { removeEncadrant(e.id); setConfirmId(null); }} className="text-[12px] font-bold text-white bg-[#B03A2E] rounded-lg px-2.5 py-1.5">Confirmer</button>
             ) : (
               <button onClick={() => setConfirmId(e.id)} className="text-[12px] font-bold text-[#B03A2E]">Retirer</button>
-            )}
+            ))}
           </div>
         ))}
       </div>
@@ -878,6 +903,7 @@ function App() {
     toggleCancel: (s) => quiet(call("admin/sortie", slotPayload(s, { besoin: s.besoin === 0 ? CAT_BESOIN[s.cat] : 0 }))),
     removeSlot: (id) => quiet(call("admin/sortie/remove", { id })),
     updateNiveau: (id, niveau) => quiet(call("admin/encadrant/niveau", { id, niveau })),
+    renameEncadrant: (id, name) => call("admin/encadrant/rename", { id, name }),
     addEncadrant: (name, niveau) => call("admin/encadrant", { name, niveau }),
     removeEncadrant: (id) => quiet(call("admin/encadrant/remove", { id })),
   };

@@ -16,6 +16,7 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
  *   POST /api/admin/sortie/remove    { id }
  *   POST /api/admin/encadrant        { name, niveau }
  *   POST /api/admin/encadrant/niveau { id, niveau }
+ *   POST /api/admin/encadrant/rename { id, name }
  *   POST /api/admin/encadrant/remove { id }
  *
  * Variables d'environnement requises : ADMIN_PASSWORD, TOKEN_SECRET.
@@ -282,6 +283,17 @@ export default async (req: Request, _context: Context) => {
         const id = String(body.id || "");
         if (!id || !NIVEAUX.includes(body.niveau)) throw new HttpError(400, "Requête invalide.");
         const rows = await db.sql`UPDATE encadrants SET niveau = ${body.niveau} WHERE id = ${id} RETURNING id`;
+        if (!rows.length) throw new HttpError(404, "Encadrant introuvable.");
+        return withState();
+      }
+
+      if (route === "admin/encadrant/rename") {
+        const id = String(body.id || "");
+        const name = String(body.name || "").trim().replace(/\s+/g, " ").slice(0, 80);
+        if (!id || !name) throw new HttpError(400, "Indique un nom.");
+        const dup = await db.sql`SELECT 1 AS x FROM encadrants WHERE lower(name) = lower(${name}) AND id <> ${id}`;
+        if (dup.length) throw new HttpError(409, "Cette personne existe déjà.");
+        const rows = await db.sql`UPDATE encadrants SET name = ${name} WHERE id = ${id} RETURNING id`;
         if (!rows.length) throw new HttpError(404, "Encadrant introuvable.");
         return withState();
       }
