@@ -81,7 +81,9 @@ const VACANCES = [
   { id: "hiver", label: "Hiver 2027", debut: "2027-02-06", fin: "2027-02-22" },
   { id: "paques", label: "Printemps 2027", debut: "2027-04-03", fin: "2027-04-19" },
 ];
-const vacancesFor = (iso) => VACANCES.find((v) => iso >= v.debut && iso <= v.fin);
+// Les vacances démarrent le samedi soir : le samedi de départ (debut) reste une journée normale.
+const vacancesFor = (iso) => VACANCES.find((v) => iso > v.debut && iso <= v.fin);
+const nextDay = (iso) => { const d = parseISO(iso); d.setDate(d.getDate() + 1); return toISO(d); };
 const FERIES = { "2026-11-11": "Férié", "2027-05-01": "Férié", "2027-05-08": "Férié" };
 
 /* ---------- Données de départ ---------- */
@@ -93,6 +95,10 @@ const CATEGORIES = [
 ];
 const catInfo = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES[0];
 const catIdx = (id) => CATEGORIES.findIndex((c) => c.id === id);
+// Un créneau peut concerner plusieurs groupes (ex. Poussin + Pupille).
+const catsOf = (s) => (s.cats && s.cats.length ? s.cats : [s.cat]);
+const catsLabel = (s) => catsOf(s).map((c) => catInfo(c).label).join(" + ");
+const hasCat = (s, c) => catsOf(s).includes(c);
 // Horaires et référents par défaut : [mercredi, samedi] (heure de début, durée en minutes)
 const CAT_DEFAULTS = {
   poussin:  { wed: ["13:15", 105], sat: ["13:45", 135], refs: ["christophe lefevre", "cristina da silva"] },
@@ -100,14 +106,18 @@ const CAT_DEFAULTS = {
   benjamin: { wed: ["13:45", 135], sat: ["10:15", 135], refs: ["evan", "tibo"] },
   minime:   { wed: ["15:45", 135], sat: ["13:45", 135], refs: ["evan", "tibo"] },
 };
-function slotDefaults(cat, date, encadrants) {
+// cats : tableau de groupes (le premier donne l'horaire et les référents par défaut ; le besoin est la somme des groupes)
+function slotDefaults(cats, date, encadrants) {
+  const list = Array.isArray(cats) ? cats : [cats];
+  const cat = list[0];
   const d = CAT_DEFAULTS[cat] || CAT_DEFAULTS.poussin;
   const [time, duree] = date && parseISO(date).getDay() === 6 ? d.sat : d.wed;
   const idOf = (name) => { const e = (encadrants || []).find((x) => x.name.toLowerCase() === name); return e ? e.id : ""; };
-  return { time, duree, referent: idOf(d.refs[0]), referent2: idOf(d.refs[1]), besoin: CAT_BESOIN[cat] };
+  return { time, duree, referent: idOf(d.refs[0]), referent2: idOf(d.refs[1]), besoin: besoinFor(list) };
 }
 const refNames = (s, byId) => [s.referent, s.referent2].map((id) => id && byId[id] && byId[id].name).filter(Boolean);
 const CAT_BESOIN = { poussin: 3, pupille: 3, benjamin: 2, minime: 4 }; // référents inclus
+const besoinFor = (cats) => (Array.isArray(cats) ? cats : [cats]).reduce((n, c) => n + (CAT_BESOIN[c] || 0), 0);
 const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole", "Entraîneur pro", "DEJEPS Triathlon"];
 const NIVEAU_COLOR = { BF1: "#6E8B74", BF2: "#4E7A51", BF3: "#2F6690", BF4: "#1B4965", BF5: "#1B2430", STAPS: "#7A3B69", "Bénévole": "#B5622A", "Entraîneur pro": "#0F766E", "DEJEPS Triathlon": "#9A3412" };
 const LIEUX = ["Nautil", "Torcy", "Vaires"];
@@ -116,7 +126,7 @@ const LIEUX = ["Nautil", "Torcy", "Vaires"];
 const presents = (s) => [...new Set([s.referent, s.referent2, ...s.inscrits].filter(Boolean))];
 const isRefOf = (s, id) => !!id && (s.referent === id || s.referent2 === id);
 const slotStatus = (s) => (s.besoin === 0 ? "annule" : presents(s).length >= s.besoin ? "complet" : "ouvert");
-const sortSlots = (a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || catIdx(a.cat) - catIdx(b.cat);
+const sortSlots = (a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || catIdx(catsOf(a)[0]) - catIdx(catsOf(b)[0]);
 
 
 /* ---------- Créneaux urgents (manque de monde dans les 48 h) ---------- */
@@ -131,7 +141,7 @@ const urgentSlots = (sorties) => {
 };
 const shareText = (list) =>
   "🚨 BFTRI – Encadrants recherchés (" + list.length + " créneau" + (list.length > 1 ? "x" : "") + ")\n\n" +
-  list.map((s) => "• " + fmtDate(s.date) + " " + fmtTime(s.time) + "–" + endTime(s) + " · " + catInfo(s.cat).label + " (" + s.lieu + ") : il manque " + manque(s) + " encadrant" + (manque(s) > 1 ? "s" : "")).join("\n") +
+  list.map((s) => "• " + fmtDate(s.date) + " " + fmtTime(s.time) + "–" + endTime(s) + " · " + catsLabel(s) + " (" + s.lieu + ") : il manque " + manque(s) + " encadrant" + (manque(s) > 1 ? "s" : "")).join("\n") +
   "\n\nInscris-toi ici : " + location.origin;
 
 /* ---------- Export agenda (.ics) ---------- */
@@ -153,7 +163,7 @@ function buildICS(list, byId) {
       `DTSTAMP:${stamp}`,
       `DTSTART:${icsDT(s.date, s.time)}`,
       `DTEND:${icsDT(s.date, s.time, s.duree || 120)}`,
-      `SUMMARY:${icsEscape("BFTRI - Encadrement " + (s.type === "vtt" ? "VTT" : "Route") + " " + catInfo(s.cat).label)}`,
+      `SUMMARY:${icsEscape("BFTRI - Encadrement " + (s.type === "vtt" ? "VTT" : "Route") + " " + catsLabel(s))}`,
       `LOCATION:${icsEscape(s.lieu)}`,
       `DESCRIPTION:${icsEscape((refNames(s, byId).length > 1 ? "Référents : " : "Référent : ") + ref)}`,
       "END:VEVENT"
@@ -251,7 +261,7 @@ const groupByDate = (list) => list.reduce((acc, s) => { (acc[s.date] = acc[s.dat
    ESPACE ENCADRANT
    ===================================================================== */
 function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, onExport }) {
-  const ci = catInfo(s.cat);
+  const ci = catInfo(catsOf(s)[0]);
   const mine = presents(s).includes(me);
   const amRef = isRefOf(s, me);
   const st = slotStatus(s);
@@ -270,7 +280,7 @@ function UserSlotCard({ s, me, byId, open, onToggle, onRegister, onUnregister, o
             <Clock size={13} className="text-[#8A8371]" /> {fmtTime(s.time)}
             <span className="text-[#D8D2C1]">·</span>{s.type === "vtt" ? "VTT" : "Route"}
           </div>
-          <p className="text-[12.5px] text-[#8A8371] truncate mt-0.5">{ci.label} — {s.lieu}</p>
+          <p className="text-[12.5px] text-[#8A8371] truncate mt-0.5">{catsLabel(s)} — {s.lieu}</p>
         </div>
         {st === "annule"
           ? <Badge color="#B03A2E">Annulé</Badge>
@@ -331,7 +341,7 @@ function UrgentBanner({ sorties, onOpen }) {
         {list.map((s) => (
           <button key={s.id} onClick={onOpen ? () => onOpen(s) : undefined}
             className="text-left text-[13.5px] text-[#1B2430] leading-snug">
-            <span className="font-bold">{fmtDate(s.date)} {fmtTime(s.time)}</span> · {catInfo(s.cat).label} · {s.lieu}
+            <span className="font-bold">{fmtDate(s.date)} {fmtTime(s.time)}</span> · {catsLabel(s)} · {s.lieu}
             <span className="font-bold text-[#B03A2E]"> — manque {manque(s)}</span>
           </button>
         ))}
@@ -388,7 +398,7 @@ function UserView({ data, actions, me, setIdentity, byId }) {
   }
 
   const base = tab === "libres" ? libres : mes;
-  const catFiltered = cat === "all" ? base : base.filter((s) => s.cat === cat);
+  const catFiltered = cat === "all" ? base : base.filter((s) => hasCat(s, cat));
   const months = [...new Set(catFiltered.map((s) => monthKey(s.date)))];
   const fallback = tab === "mes" ? "all" : months[0] || "all";
   const monthSel = month === "all" || (month && months.includes(month)) ? month : fallback;
@@ -405,7 +415,7 @@ function UserView({ data, actions, me, setIdentity, byId }) {
     catch (e) { setToast({ error: e.message }); }
     setOpenId(null);
   };
-  const exportOne = (s) => downloadICS([s], byId, `bftri-${s.date}-${s.cat}.ics`);
+  const exportOne = (s) => downloadICS([s], byId, `bftri-${s.date}-${catsOf(s).join("-")}.ics`);
   const switchTab = (t) => { setTab(t); setMonth(null); setOpenId(null); };
 
   return (
@@ -512,12 +522,17 @@ function AdminGate({ onOK }) {
 }
 
 function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, onSave, onCancel }) {
-  const [f, setF] = useState(initial);
+  const [f, setF] = useState(() => ({ ...initial, cats: catsOf(initial) }));
   const [err, setErr] = useState("");
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
   const isNew = !f.id;
-  const setCat = (cat) => setF((prev) => ({ ...prev, cat, type: cat === "minime" ? prev.type : "vtt", ...(isNew ? slotDefaults(cat, prev.date, encadrants) : {}) }));
-  const setDate = (date) => setF((prev) => ({ ...prev, date, ...(isNew && date ? slotDefaults(prev.cat, date, encadrants) : {}) }));
+  const toggleCat = (id) => setF((prev) => {
+    const has = prev.cats.includes(id);
+    if (has && prev.cats.length === 1) return prev; // au moins un groupe
+    const cats = CATEGORIES.map((c) => c.id).filter((c) => (c === id ? !has : prev.cats.includes(c)));
+    return { ...prev, cats, type: cats.includes("minime") ? prev.type : "vtt", ...(isNew ? slotDefaults(cats, prev.date, encadrants) : {}) };
+  });
+  const setDate = (date) => setF((prev) => ({ ...prev, date, ...(isNew && date ? slotDefaults(prev.cats, date, encadrants) : {}) }));
   const sortedEnc = [...encadrants].sort((a, b) => a.name.localeCompare(b.name));
   const [busy, setBusy] = useState(false);
   const submit = async () => {
@@ -526,6 +541,7 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
     setBusy(true);
     try { await onSave({
       ...f,
+      cats: f.cats,
       lieu: String(f.lieu).trim(),
       duree: parseInt(f.duree, 10) || 120,
       besoin: Math.max(0, parseInt(f.besoin, 10) || 0),
@@ -547,17 +563,27 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
         </Field>
         <Field label="Heure"><input type="time" value={f.time} onChange={(e) => set("time", e.target.value)} className={inputCls} /></Field>
         <Field label="Durée (min)"><input type="number" min="15" step="15" value={f.duree} onChange={(e) => set("duree", e.target.value)} className={inputCls} /></Field>
-        <Field label="Groupe" className="col-span-2">
-          <select value={f.cat} onChange={(e) => setCat(e.target.value)} className={inputCls}>
-            {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
+        <Field label="Groupes concernés" className="col-span-2">
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((c) => {
+              const on = f.cats.includes(c.id);
+              return (
+                <button type="button" key={c.id} onClick={() => toggleCat(c.id)} aria-pressed={on}
+                  className={"rounded-full border-2 px-3 py-1.5 text-[13px] font-bold " + (on ? "text-white" : "bg-white text-[#5B5648] border-[#D8D2C1]")}
+                  style={on ? { background: c.color, borderColor: c.color } : undefined}>
+                  {on ? "✓ " : ""}{c.label}
+                </button>
+              );
+            })}
+          </div>
+          <span className="block text-[11.5px] text-[#8A8371] mt-1">Plusieurs groupes possibles pour une même sortie (ex. Poussin + Pupille).</span>
         </Field>
         <Field label="Type" className="col-span-2">
           <select value={f.type} onChange={(e) => set("type", e.target.value)} className={inputCls}>
             <option value="vtt">VTT</option>
-            {f.cat === "minime" && <option value="route">Route</option>}
+            {f.cats.includes("minime") && <option value="route">Route</option>}
           </select>
-          {f.cat !== "minime" && <span className="block text-[11.5px] text-[#8A8371] mt-1">Seul le groupe Compet sort en Route.</span>}
+          {!f.cats.includes("minime") && <span className="block text-[11.5px] text-[#8A8371] mt-1">Seul le groupe Compet sort en Route.</span>}
         </Field>
         <Field label="Lieu de rendez-vous" className="col-span-2">
           <input list="lieux-list" value={f.lieu} onChange={(e) => set("lieu", e.target.value)} placeholder="Nautil, Torcy, Vaires…" className={inputCls} />
@@ -594,7 +620,7 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
 
 function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
   const [confirmDel, setConfirmDel] = useState(false);
-  const ci = catInfo(s.cat);
+  const ci = catInfo(catsOf(s)[0]);
   const annule = s.besoin === 0;
   const missing = s.besoin - presents(s).length;
   const refs = refNames(s, byId);
@@ -609,7 +635,7 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
             {fmtDate(s.date)} <span className="text-[#D8D2C1]">·</span> {fmtTime(s.time)}–{endTime(s)}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-            <Badge color={ci.color}>{ci.label}</Badge>
+            <Badge color={ci.color}>{catsLabel(s)}</Badge>
             <span className="flex items-center gap-1 text-[12px] text-[#5B5648] font-medium"><KindIcon type={s.type} size={12} /> {s.type === "vtt" ? "VTT" : "Route"}</span>
             {vac && <Badge color="#2F6690">Vacances</Badge>}
           </div>
@@ -648,7 +674,7 @@ function AdminSlotCard({ s, byId, onEdit, onToggleCancel, onDelete }) {
 }
 
 const newSlotDefaults = (date, encadrants) => ({
-  id: null, date, ...slotDefaults("poussin", date, encadrants), type: "vtt", cat: "poussin", lieu: "Nautil",
+  id: null, date, ...slotDefaults(["poussin"], date, encadrants), type: "vtt", cats: ["poussin"], lieu: "Nautil",
   participants: "", note: "", inscrits: [],
 });
 
@@ -660,7 +686,7 @@ function AdminSlots({ data, actions, byId }) {
   const { save, create, toggleCancel } = actions;
 
   const list = useMemo(() => data.sorties.filter((s) => showPast || isUpcoming(s)).sort(sortSlots), [data.sorties, showPast]);
-  const catFiltered = cat === "all" ? list : list.filter((s) => s.cat === cat);
+  const catFiltered = cat === "all" ? list : list.filter((s) => hasCat(s, cat));
   const months = [...new Set(catFiltered.map((s) => monthKey(s.date)))];
   const monthSel = month === "all" || (month && months.includes(month)) ? month : months[0] || "all";
   const visible = monthSel === "all" ? catFiltered : catFiltered.filter((s) => monthKey(s.date) === monthSel);
@@ -703,7 +729,7 @@ function AdminSlots({ data, actions, byId }) {
               <SlotForm key={s.id} title="Modifier le créneau" initial={s} encadrants={data.encadrants} submitLabel="Enregistrer"
                 onCancel={() => setEditing(null)} onSave={async (v) => { await save(s.id, v); setEditing(null); }} />
             ) : (
-              <AdminSlotCard key={s.id} s={s} byId={byId} onEdit={() => setEditing(s.id)} onToggleCancel={() => toggleCancel(s)} />
+              <AdminSlotCard key={s.id} s={s} byId={byId} onEdit={() => setEditing(s.id)} onToggleCancel={() => toggleCancel(s)} onDelete={() => actions.removeSlot(s.id)} />
             ))}
           </div>
         </div>
@@ -719,18 +745,18 @@ function AdminVacances({ data, actions, byId }) {
     <div>
       <h2 className="font-display text-[21px] text-[#1B2430] mb-1">Vacances scolaires</h2>
       <p className="text-[13px] text-[#5B5648] mb-4">
-        Zone C (Créteil – Seine-et-Marne), saison 2026-2027. Aucun entraînement régulier n'est programmé pendant ces périodes :
+        Zone C (Créteil – Seine-et-Marne), saison 2026-2027. Les vacances démarrent le samedi soir : le premier samedi reste un entraînement normal. Aucun entraînement régulier n'est ensuite programmé pendant ces périodes :
         ajoute ici les créneaux particuliers (stages, sorties exceptionnelles).
       </p>
       {VACANCES.map((v) => {
-        const slots = data.sorties.filter((s) => s.date >= v.debut && s.date <= v.fin).sort(sortSlots);
+        const slots = data.sorties.filter((s) => vacancesFor(s.date) === v).sort(sortSlots);
         const groups = groupByDate(slots);
         const newKey = v.id + ":new";
         return (
           <div key={v.id} className="mb-7">
             <div className="rounded-2xl bg-[#1B2430] text-white px-4 py-3 mb-3">
               <p className="font-display text-[17px]">{v.label}</p>
-              <p className="text-[12.5px] text-white/70">du {fmtDate(v.debut)} au {fmtDate(v.fin)} {parseISO(v.fin).getFullYear()}</p>
+              <p className="text-[12.5px] text-white/70">du {fmtDate(v.debut)} (le soir) au {fmtDate(v.fin)} {parseISO(v.fin).getFullYear()}</p>
             </div>
             {slots.length === 0 && <p className="text-[13px] text-[#8A8371] mb-3">Aucun créneau particulier sur cette période.</p>}
             {Object.entries(groups).map(([date, list]) => (
@@ -738,7 +764,7 @@ function AdminVacances({ data, actions, byId }) {
                 <h3 className="font-display text-[15px] text-[#1B2430] mb-2">{fmtDateYear(date)}</h3>
                 <div className="flex flex-col gap-2.5">
                   {list.map((s) => editing === s.id ? (
-                    <SlotForm key={s.id} title="Modifier le créneau" initial={s} encadrants={data.encadrants} dateMin={v.debut} dateMax={v.fin}
+                    <SlotForm key={s.id} title="Modifier le créneau" initial={s} encadrants={data.encadrants} dateMin={nextDay(v.debut)} dateMax={v.fin}
                       submitLabel="Enregistrer" onCancel={() => setEditing(null)} onSave={async (vals) => { await save(s.id, vals); setEditing(null); }} />
                   ) : (
                     <AdminSlotCard key={s.id} s={s} byId={byId} onEdit={() => setEditing(s.id)} onToggleCancel={() => toggleCancel(s)} onDelete={() => actions.removeSlot(s.id)} />
@@ -747,8 +773,8 @@ function AdminVacances({ data, actions, byId }) {
               </div>
             ))}
             {editing === newKey ? (
-              <SlotForm title={"Nouveau créneau · " + v.label} initial={newSlotDefaults(v.debut, data.encadrants)} encadrants={data.encadrants}
-                dateMin={v.debut} dateMax={v.fin} submitLabel="Créer le créneau"
+              <SlotForm title={"Nouveau créneau · " + v.label} initial={newSlotDefaults(nextDay(v.debut), data.encadrants)} encadrants={data.encadrants}
+                dateMin={nextDay(v.debut)} dateMax={v.fin} submitLabel="Créer le créneau"
                 onCancel={() => setEditing(null)} onSave={async (vals) => { await create(vals); setEditing(null); }} />
             ) : (
               <button onClick={() => setEditing(newKey)}
@@ -894,13 +920,13 @@ function App() {
     }
   };
   const quiet = (p) => p.catch((e) => setNotice(e.message));
-  const slotPayload = (s, extra) => ({ id: s.id, date: s.date, time: s.time, duree: s.duree, type: s.type, cat: s.cat, lieu: s.lieu, referent: s.referent || null, referent2: s.referent2 || null, besoin: s.besoin, participants: s.participants, note: s.note, ...extra });
+  const slotPayload = (s, extra) => ({ id: s.id, date: s.date, time: s.time, duree: s.duree, type: s.type, cats: catsOf(s), lieu: s.lieu, referent: s.referent || null, referent2: s.referent2 || null, besoin: s.besoin, participants: s.participants, note: s.note, ...extra });
   const actions = {
     register: (sortieId, encadrantId) => call("register", { sortieId, encadrantId }),
     unregister: (sortieId, encadrantId) => call("unregister", { sortieId, encadrantId }),
     save: (id, vals) => call("admin/sortie", { ...vals, id }),
     create: (vals) => call("admin/sortie", { ...vals, id: null }),
-    toggleCancel: (s) => quiet(call("admin/sortie", slotPayload(s, { besoin: s.besoin === 0 ? CAT_BESOIN[s.cat] : 0 }))),
+    toggleCancel: (s) => quiet(call("admin/sortie", slotPayload(s, { besoin: s.besoin === 0 ? besoinFor(catsOf(s)) : 0 }))),
     removeSlot: (id) => quiet(call("admin/sortie/remove", { id })),
     updateNiveau: (id, niveau) => quiet(call("admin/encadrant/niveau", { id, niveau })),
     renameEncadrant: (id, name) => call("admin/encadrant/rename", { id, name }),

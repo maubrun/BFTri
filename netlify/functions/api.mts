@@ -12,7 +12,7 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
  *
  * Administration (mot de passe vérifié ici, jeton signé de 12 h) :
  *   POST /api/admin/login            { password }
- *   POST /api/admin/sortie           { id?, date, time, duree, type, cat, lieu, referent, besoin, participants, note }
+ *   POST /api/admin/sortie           { id?, date, time, duree, type, cats[], lieu, referent, referent2, besoin, participants, note }
  *   POST /api/admin/sortie/remove    { id }
  *   POST /api/admin/encadrant        { name, niveau }
  *   POST /api/admin/encadrant/niveau { id, niveau }
@@ -84,7 +84,7 @@ async function loadState(db: any) {
     SELECT s.id,
            to_char(s.jour, 'YYYY-MM-DD') AS date,
            s.heure AS time,
-           s.duree, s.type, s.cat, s.lieu, s.referent, s.referent2, s.besoin, s.participants, s.note,
+           s.duree, s.type, s.cat, s.cats, s.lieu, s.referent, s.referent2, s.besoin, s.participants, s.note,
            COALESCE(array_agg(i.encadrant_id ORDER BY i.created_at) FILTER (WHERE i.encadrant_id IS NOT NULL), '{}') AS inscrits
     FROM sorties s
     LEFT JOIN inscriptions i ON i.sortie_id = s.id
@@ -105,10 +105,14 @@ function parseSortie(b: any) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new HttpError(400, "Date invalide.");
   const time = String(b.time || "");
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new HttpError(400, "Heure invalide.");
-  const cat = String(b.cat || "");
-  if (!CATS.includes(cat)) throw new HttpError(400, "Groupe invalide.");
+  // Un créneau peut concerner plusieurs groupes (ex. Poussin + Pupille). Compatibilité : ancien champ "cat".
+  const rawCats: unknown[] = Array.isArray(b.cats) ? b.cats : b.cat ? [b.cat] : [];
+  if (!rawCats.length || rawCats.some((c) => !CATS.includes(String(c)))) throw new HttpError(400, "Choisis au moins un groupe valide.");
+  const cats = CATS.filter((c) => rawCats.map(String).includes(c)); // dédoublonné, dans l'ordre des groupes
   const type = b.type === "route" ? "route" : "vtt";
-  if (type === "route" && cat !== "minime") throw new HttpError(400, "Seul le groupe Compet sort en Route.");
+  if (type === "route" && !cats.includes("minime")) throw new HttpError(400, "Seul le groupe Compet sort en Route.");
+  // Groupe principal (colonne "cat") : Compet pour une sortie Route, sinon le premier groupe.
+  const cat = type === "route" ? "minime" : cats[0];
   const lieu = String(b.lieu || "").trim().slice(0, 80);
   if (!lieu) throw new HttpError(400, "Le lieu est obligatoire.");
   const duree = toInt(b.duree ?? 120, 15, 600, "Durée");
@@ -121,7 +125,7 @@ function parseSortie(b: any) {
   const referent = b.referent ? String(b.referent) : null;
   const referent2 = b.referent2 ? String(b.referent2) : null;
   if (referent && referent === referent2) throw new HttpError(400, "Les deux référents doivent être différents.");
-  return { date, time, cat, type, lieu, duree, besoin, participants, note, referent, referent2 };
+  return { date, time, cat, cats, type, lieu, duree, besoin, participants, note, referent, referent2 };
 }
 
 const minutes = (hhmm: string) => {
@@ -247,15 +251,15 @@ export default async (req: Request, _context: Context) => {
         }
         if (body.id) {
           const rows = await db.sql`
-            UPDATE sorties SET jour = ${p.date}, heure = ${p.time}, duree = ${p.duree}, type = ${p.type}, cat = ${p.cat},
+            UPDATE sorties SET jour = ${p.date}, heure = ${p.time}, duree = ${p.duree}, type = ${p.type}, cat = ${p.cat}, cats = ${p.cats},
                    lieu = ${p.lieu}, referent = ${p.referent}, referent2 = ${p.referent2}, besoin = ${p.besoin}, participants = ${p.participants}, note = ${p.note}
             WHERE id = ${String(body.id)} RETURNING id`;
           if (!rows.length) throw new HttpError(404, "Créneau introuvable.");
         } else {
           const id = "s" + randomUUID().slice(0, 8);
           await db.sql`
-            INSERT INTO sorties (id, jour, heure, duree, type, cat, lieu, referent, referent2, besoin, participants, note)
-            VALUES (${id}, ${p.date}, ${p.time}, ${p.duree}, ${p.type}, ${p.cat}, ${p.lieu}, ${p.referent}, ${p.referent2}, ${p.besoin}, ${p.participants}, ${p.note})`;
+            INSERT INTO sorties (id, jour, heure, duree, type, cat, cats, lieu, referent, referent2, besoin, participants, note)
+            VALUES (${id}, ${p.date}, ${p.time}, ${p.duree}, ${p.type}, ${p.cat}, ${p.cats}, ${p.lieu}, ${p.referent}, ${p.referent2}, ${p.besoin}, ${p.participants}, ${p.note})`;
         }
         return withState();
       }
