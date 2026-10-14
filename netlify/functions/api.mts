@@ -14,6 +14,9 @@ import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
  *   POST /api/admin/login            { password }
  *   POST /api/admin/sortie           { id?, date, time, duree, type, cats[], lieu, referent, referent2, besoin, participants, note }
  *   POST /api/admin/sortie/remove    { id }
+ *   POST /api/admin/lieu             { name }
+ *   POST /api/admin/lieu/rename      { name, newName }   (met aussi à jour les créneaux concernés)
+ *   POST /api/admin/lieu/remove      { name }            (les créneaux existants gardent leur lieu)
  *   POST /api/admin/encadrant        { name, niveau }
  *   POST /api/admin/encadrant/niveau { id, niveau }
  *   POST /api/admin/encadrant/rename { id, name }
@@ -90,7 +93,8 @@ async function loadState(db: any) {
     LEFT JOIN inscriptions i ON i.sortie_id = s.id
     GROUP BY s.id
     ORDER BY s.jour, s.heure, s.id`;
-  return { encadrants, sorties };
+  const lieuxRows = await db.sql`SELECT name FROM lieux ORDER BY ordre, lower(name)`;
+  return { encadrants, sorties, lieux: lieuxRows.map((r: any) => r.name) };
 }
 
 /* ---------- Validation ---------- */
@@ -110,9 +114,9 @@ function parseSortie(b: any) {
   if (!rawCats.length || rawCats.some((c) => !CATS.includes(String(c)))) throw new HttpError(400, "Choisis au moins un groupe valide.");
   const cats = CATS.filter((c) => rawCats.map(String).includes(c)); // dédoublonné, dans l'ordre des groupes
   const type = b.type === "route" ? "route" : "vtt";
-  if (type === "route" && !cats.includes("minime")) throw new HttpError(400, "Seul le groupe Compet sort en Route.");
-  // Groupe principal (colonne "cat") : Compet pour une sortie Route, sinon le premier groupe.
-  const cat = type === "route" ? "minime" : cats[0];
+  if (type === "route" && !cats.includes("minime") && !cats.includes("benjamin")) throw new HttpError(400, "Seuls les groupes Compet et Benjamin sortent en Route.");
+  // Groupe principal (colonne "cat") : Compet pour une sortie Route qui le concerne, sinon le premier groupe.
+  const cat = type === "route" && cats.includes("minime") ? "minime" : cats[0];
   const lieu = String(b.lieu || "").trim().slice(0, 80);
   if (!lieu) throw new HttpError(400, "Le lieu est obligatoire.");
   const duree = toInt(b.duree ?? 120, 15, 600, "Durée");
@@ -269,6 +273,36 @@ export default async (req: Request, _context: Context) => {
         if (!id) throw new HttpError(400, "Requête incomplète.");
         const rows = await db.sql`DELETE FROM sorties WHERE id = ${id} RETURNING id`;
         if (!rows.length) throw new HttpError(404, "Créneau introuvable.");
+        return withState();
+      }
+
+      if (route === "admin/lieu") {
+        const name = String(body.name || "").trim().replace(/\s+/g, " ").slice(0, 80);
+        if (!name) throw new HttpError(400, "Indique un nom de lieu.");
+        const dup = await db.sql`SELECT 1 AS x FROM lieux WHERE lower(name) = lower(${name})`;
+        if (dup.length) throw new HttpError(409, "Ce lieu existe déjà.");
+        await db.sql`INSERT INTO lieux (name, ordre) VALUES (${name}, COALESCE((SELECT max(ordre) FROM lieux), 0) + 1)`;
+        return withState();
+      }
+
+      if (route === "admin/lieu/rename") {
+        const name = String(body.name || "");
+        const newName = String(body.newName || "").trim().replace(/\s+/g, " ").slice(0, 80);
+        if (!name || !newName) throw new HttpError(400, "Requête incomplète.");
+        const dup = await db.sql`SELECT 1 AS x FROM lieux WHERE lower(name) = lower(${newName}) AND name <> ${name}`;
+        if (dup.length) throw new HttpError(409, "Ce lieu existe déjà.");
+        const rows = await db.sql`UPDATE lieux SET name = ${newName} WHERE name = ${name} RETURNING name`;
+        if (!rows.length) throw new HttpError(404, "Lieu introuvable.");
+        await db.sql`UPDATE sorties SET lieu = ${newName} WHERE lieu = ${name}`;
+        return withState();
+      }
+
+      if (route === "admin/lieu/remove") {
+        const name = String(body.name || "");
+        const n = await db.sql`SELECT count(*)::int AS n FROM lieux`;
+        if (n[0].n <= 1) throw new HttpError(400, "Garde au moins un lieu dans la liste.");
+        const rows = await db.sql`DELETE FROM lieux WHERE name = ${name} RETURNING name`;
+        if (!rows.length) throw new HttpError(404, "Lieu introuvable.");
         return withState();
       }
 

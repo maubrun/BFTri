@@ -18,6 +18,8 @@
   body { font-family: 'Inter', system-ui, sans-serif; background: #FAF7F0; -webkit-tap-highlight-color: transparent; }
   input, select, button { font-family: inherit; }
   input, select { font-size: 16px; } /* évite le zoom automatique sur iPhone */
+  .help-body ul { margin: 0; padding-left: 1.1rem; list-style: disc; }
+  .help-body li { margin-bottom: .4rem; }
   .font-display { font-family: 'Oswald', system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.01em; }
 </style>
 </head>
@@ -120,7 +122,7 @@ const CAT_BESOIN = { poussin: 3, pupille: 3, benjamin: 2, minime: 4 }; // réfé
 const besoinFor = (cats) => (Array.isArray(cats) ? cats : [cats]).reduce((n, c) => n + (CAT_BESOIN[c] || 0), 0);
 const NIVEAUX = ["BF1", "BF2", "BF3", "BF4", "BF5", "STAPS", "Bénévole", "Entraîneur pro", "DEJEPS Triathlon"];
 const NIVEAU_COLOR = { BF1: "#6E8B74", BF2: "#4E7A51", BF3: "#2F6690", BF4: "#1B4965", BF5: "#1B2430", STAPS: "#7A3B69", "Bénévole": "#B5622A", "Entraîneur pro": "#0F766E", "DEJEPS Triathlon": "#9A3412" };
-const LIEUX = ["Nautil", "Torcy", "Vaires"];
+const canRoute = (cats) => cats.includes("minime") || cats.includes("benjamin"); // groupes autorisés en Route
 
 // Les référents comptent dans le nombre d'encadrants requis.
 const presents = (s) => [...new Set([s.referent, s.referent2, ...s.inscrits].filter(Boolean))];
@@ -201,6 +203,7 @@ const Lock = (p) => <Icon {...p}><rect x="4" y="11" width="16" height="10" rx="2
 const Pencil = (p) => <Icon {...p}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></Icon>;
 const Ban = (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></Icon>;
 const Undo = (p) => <Icon {...p}><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></Icon>;
+const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.2-2.5 3.9"/><path d="M12 17.2h.01"/></Icon>;
 const UsersIcon = (p) => <Icon {...p}><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"/></Icon>;
 const KindIcon = ({ type, size = 16 }) => (type === "vtt" ? <Bike size={size} /> : <RoadIcon size={size} />);
 
@@ -521,7 +524,7 @@ function AdminGate({ onOK }) {
   );
 }
 
-function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, onSave, onCancel }) {
+function SlotForm({ title, initial, encadrants, lieux, dateMin, dateMax, submitLabel, onSave, onCancel }) {
   const [f, setF] = useState(() => ({ ...initial, cats: catsOf(initial) }));
   const [err, setErr] = useState("");
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
@@ -530,7 +533,7 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
     const has = prev.cats.includes(id);
     if (has && prev.cats.length === 1) return prev; // au moins un groupe
     const cats = CATEGORIES.map((c) => c.id).filter((c) => (c === id ? !has : prev.cats.includes(c)));
-    return { ...prev, cats, type: cats.includes("minime") ? prev.type : "vtt", ...(isNew ? slotDefaults(cats, prev.date, encadrants) : {}) };
+    return { ...prev, cats, type: canRoute(cats) ? prev.type : "vtt", ...(isNew ? slotDefaults(cats, prev.date, encadrants) : {}) };
   });
   const setDate = (date) => setF((prev) => ({ ...prev, date, ...(isNew && date ? slotDefaults(prev.cats, date, encadrants) : {}) }));
   const sortedEnc = [...encadrants].sort((a, b) => a.name.localeCompare(b.name));
@@ -581,13 +584,13 @@ function SlotForm({ title, initial, encadrants, dateMin, dateMax, submitLabel, o
         <Field label="Type" className="col-span-2">
           <select value={f.type} onChange={(e) => set("type", e.target.value)} className={inputCls}>
             <option value="vtt">VTT</option>
-            {f.cats.includes("minime") && <option value="route">Route</option>}
+            {canRoute(f.cats) && <option value="route">Route</option>}
           </select>
-          {!f.cats.includes("minime") && <span className="block text-[11.5px] text-[#8A8371] mt-1">Seul le groupe Compet sort en Route.</span>}
+          {!canRoute(f.cats) && <span className="block text-[11.5px] text-[#8A8371] mt-1">Seuls les groupes Compet et Benjamin sortent en Route.</span>}
         </Field>
         <Field label="Lieu de rendez-vous" className="col-span-2">
-          <input list="lieux-list" value={f.lieu} onChange={(e) => set("lieu", e.target.value)} placeholder="Nautil, Torcy, Vaires…" className={inputCls} />
-          <datalist id="lieux-list">{LIEUX.map((l) => <option key={l} value={l} />)}</datalist>
+          <input list="lieux-list" value={f.lieu} onChange={(e) => set("lieu", e.target.value)} placeholder="Choisis ou saisis un lieu" className={inputCls} />
+          <datalist id="lieux-list">{(lieux || []).map((l) => <option key={l} value={l} />)}</datalist>
         </Field>
         <Field label="Référent 1" className="col-span-2">
           <select value={f.referent || ""} onChange={(e) => set("referent", e.target.value)} className={inputCls}>
@@ -710,7 +713,7 @@ function AdminSlots({ data, actions, byId }) {
 
       {editing === "new" ? (
         <div className="mb-5">
-          <SlotForm title="Nouveau créneau" initial={newSlotDefaults(todayISO, data.encadrants)} encadrants={data.encadrants} submitLabel="Créer le créneau"
+          <SlotForm title="Nouveau créneau" initial={newSlotDefaults(todayISO, data.encadrants)} encadrants={data.encadrants} lieux={data.lieux} submitLabel="Créer le créneau"
             onCancel={() => setEditing(null)} onSave={async (v) => { await create(v); setEditing(null); }} />
         </div>
       ) : (
@@ -726,7 +729,7 @@ function AdminSlots({ data, actions, byId }) {
           <h3 className="font-display text-[16px] text-[#1B2430] mb-2">{fmtDateYear(date)}</h3>
           <div className="flex flex-col gap-2.5">
             {slots.map((s) => editing === s.id ? (
-              <SlotForm key={s.id} title="Modifier le créneau" initial={s} encadrants={data.encadrants} submitLabel="Enregistrer"
+              <SlotForm key={s.id} title="Modifier le créneau" initial={s} encadrants={data.encadrants} lieux={data.lieux} submitLabel="Enregistrer"
                 onCancel={() => setEditing(null)} onSave={async (v) => { await save(s.id, v); setEditing(null); }} />
             ) : (
               <AdminSlotCard key={s.id} s={s} byId={byId} onEdit={() => setEditing(s.id)} onToggleCancel={() => toggleCancel(s)} onDelete={() => actions.removeSlot(s.id)} />
@@ -764,7 +767,7 @@ function AdminVacances({ data, actions, byId }) {
                 <h3 className="font-display text-[15px] text-[#1B2430] mb-2">{fmtDateYear(date)}</h3>
                 <div className="flex flex-col gap-2.5">
                   {list.map((s) => editing === s.id ? (
-                    <SlotForm key={s.id} title="Modifier le créneau" initial={s} encadrants={data.encadrants} dateMin={nextDay(v.debut)} dateMax={v.fin}
+                    <SlotForm key={s.id} title="Modifier le créneau" initial={s} encadrants={data.encadrants} lieux={data.lieux} dateMin={nextDay(v.debut)} dateMax={v.fin}
                       submitLabel="Enregistrer" onCancel={() => setEditing(null)} onSave={async (vals) => { await save(s.id, vals); setEditing(null); }} />
                   ) : (
                     <AdminSlotCard key={s.id} s={s} byId={byId} onEdit={() => setEditing(s.id)} onToggleCancel={() => toggleCancel(s)} onDelete={() => actions.removeSlot(s.id)} />
@@ -773,7 +776,7 @@ function AdminVacances({ data, actions, byId }) {
               </div>
             ))}
             {editing === newKey ? (
-              <SlotForm title={"Nouveau créneau · " + v.label} initial={newSlotDefaults(nextDay(v.debut), data.encadrants)} encadrants={data.encadrants}
+              <SlotForm title={"Nouveau créneau · " + v.label} initial={newSlotDefaults(nextDay(v.debut), data.encadrants)} encadrants={data.encadrants} lieux={data.lieux}
                 dateMin={nextDay(v.debut)} dateMax={v.fin} submitLabel="Créer le créneau"
                 onCancel={() => setEditing(null)} onSave={async (vals) => { await create(vals); setEditing(null); }} />
             ) : (
@@ -863,9 +866,77 @@ function AdminEncadrants({ data, actions }) {
   );
 }
 
+function AdminLieux({ data, actions }) {
+  const lieux = data.lieux || [];
+  const [name, setName] = useState("");
+  const [err, setErr] = useState("");
+  const [editName, setEditName] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const [editErr, setEditErr] = useState("");
+  const [confirm, setConfirm] = useState(null);
+  const usage = (l) => data.sorties.filter((s) => s.lieu === l).length;
+  const add = async () => {
+    const n = name.trim().replace(/\s+/g, " ");
+    if (!n) { setErr("Indique un nom de lieu."); return; }
+    if (lieux.some((l) => l.toLowerCase() === n.toLowerCase())) { setErr("Ce lieu existe déjà."); return; }
+    try { await actions.addLieu(n); setName(""); setErr(""); } catch (e) { setErr(e.message); }
+  };
+  const saveEdit = async () => {
+    const n = editVal.trim().replace(/\s+/g, " ");
+    if (!n) { setEditErr("Indique un nom."); return; }
+    try { await actions.renameLieu(editName, n); setEditName(null); setEditErr(""); } catch (e) { setEditErr(e.message); }
+  };
+  return (
+    <div>
+      <h2 className="font-display text-[21px] text-[#1B2430] mb-1">Lieux ({lieux.length})</h2>
+      <p className="text-[13px] text-[#5B5648] mb-4">Ces lieux sont proposés quand tu crées ou modifies un créneau. Les créneaux déjà créés gardent leur lieu.</p>
+      <div className="rounded-2xl border border-[#E2DBC9] bg-[#FBF9F3] p-4 mb-5">
+        <Field label="Nouveau lieu de rendez-vous">
+          <input value={name} onChange={(e) => { setName(e.target.value); setErr(""); }} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Ex. Parking Decathlon Pontault" className={inputCls} />
+        </Field>
+        {err && <p className="text-[13px] font-bold text-[#B03A2E] mt-3">{err}</p>}
+        <button onClick={add} className="w-full rounded-xl bg-[#1B2430] text-white py-2.5 text-[14px] font-bold mt-4 flex items-center justify-center gap-1.5"><Plus size={16} /> Ajouter le lieu</button>
+      </div>
+      <div className="flex flex-col gap-2">
+        {lieux.map((l) => (
+          <div key={l} className="flex items-center gap-3 rounded-2xl border border-[#E2DBC9] bg-white px-4 py-3 shadow-sm">
+            <MapPin size={20} className="text-[#B0A98F] shrink-0" />
+            {editName === l ? (
+              <div className="flex-1 min-w-0">
+                <input value={editVal} onChange={(e) => { setEditVal(e.target.value); setEditErr(""); }} autoFocus aria-label={"Nom du lieu " + l}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditName(null); }} className={inputCls + " !py-1.5"} />
+                {editErr && <p className="text-[12px] font-bold text-[#B03A2E] mt-1">{editErr}</p>}
+                <div className="flex gap-3 mt-1.5">
+                  <button onClick={saveEdit} className="text-[12px] font-bold text-white bg-[#1B2430] rounded-lg px-2.5 py-1.5">Enregistrer</button>
+                  <button onClick={() => setEditName(null)} className="text-[12px] font-bold text-[#8A8371]">Annuler</button>
+                </div>
+                <p className="text-[11.5px] text-[#8A8371] mt-1">Le nom est aussi changé sur les créneaux qui l'utilisent.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[14.5px] font-semibold text-[#1B2430]">{l}</span>
+                  <span className="block text-[11.5px] text-[#8A8371]">{usage(l)} créneau{usage(l) > 1 ? "x" : ""}</span>
+                </div>
+                <button onClick={() => { setEditName(l); setEditVal(l); setEditErr(""); setConfirm(null); }} className="text-[12px] font-bold text-[#C1652F]">Renommer</button>
+                {confirm === l ? (
+                  <button onClick={() => { actions.removeLieu(l); setConfirm(null); }} className="text-[12px] font-bold text-white bg-[#B03A2E] rounded-lg px-2.5 py-1.5">Confirmer</button>
+                ) : (
+                  <button onClick={() => setConfirm(l)} className="text-[12px] font-bold text-[#B03A2E]">Retirer</button>
+                )}
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="text-[11.5px] text-[#8A8371] mt-3">Retirer un lieu ne modifie pas les créneaux existants : il n'est simplement plus proposé.</p>
+    </div>
+  );
+}
+
 function AdminView({ data, actions, byId, onLogout }) {
   const [tab, setTab] = useState("creneaux");
-  const tabs = [{ id: "creneaux", label: "Créneaux" }, { id: "vacances", label: "Vacances" }, { id: "encadrants", label: "Encadrants" }];
+  const tabs = [{ id: "creneaux", label: "Créneaux" }, { id: "vacances", label: "Vacances" }, { id: "encadrants", label: "Encadrants" }, { id: "lieux", label: "Lieux" }];
   return (
     <div className="px-5 pt-5 pb-14 max-w-md mx-auto">
       <div className="flex items-center justify-between mb-3">
@@ -883,6 +954,7 @@ function AdminView({ data, actions, byId, onLogout }) {
       {tab === "creneaux" && <AdminSlots data={data} actions={actions} byId={byId} />}
       {tab === "vacances" && <AdminVacances data={data} actions={actions} byId={byId} />}
       {tab === "encadrants" && <AdminEncadrants data={data} actions={actions} />}
+      {tab === "lieux" && <AdminLieux data={data} actions={actions} />}
     </div>
   );
 }
@@ -890,11 +962,67 @@ function AdminView({ data, actions, byId, onLogout }) {
 /* =====================================================================
    APPLICATION
    ===================================================================== */
+
+/* ---------- Aide en ligne ---------- */
+const HELP_ENCADRANT = [
+  { t: "Se connecter", b: <ul><li>Reste sur l'onglet <b>Encadrant</b> et choisis ton nom dans la liste. Pas de mot de passe.</li><li>Ton téléphone retient ton choix. <b>Changer</b> (en haut) permet de changer de personne.</li><li>Ton nom n'est pas dans la liste ? Demande à un administrateur de t'ajouter.</li></ul> },
+  { t: "Comprendre un créneau", b: <ul><li>Un créneau = une sortie d'un ou plusieurs groupes (ex. « Poussin + Pupille »). Touche-le pour voir l'heure, le lieu, les référents et les présents.</li><li><b>x/y</b> : x personnes sont positionnées sur les y requises, <b>référents inclus</b> (notés « réf. »). Le « y » dépend de la séance : fie-toi à celui affiché.</li><li>Jauge <b>orange</b> : il manque du monde. Jauge <b>verte</b> : le créneau est complet.</li><li><b>Annulé</b> : plus aucune inscription possible.</li></ul> },
+  { t: "S'inscrire, se désinscrire", b: <ul><li>Ouvre le créneau puis touche <b>Je suis disponible</b>.</li><li><b>Ajouter à mon agenda</b> l'enregistre dans le calendrier du téléphone. <b>Exporter tous mes créneaux</b> (onglet Mes créneaux) exporte tout.</li><li>Pour te désinscrire : <b>Mes créneaux</b>, le créneau, puis <b>Me désinscrire</b>.</li><li>Refus possible si le créneau est annulé, vient d'être complété, ou si tu es déjà positionné à la même heure.</li><li>Référent d'un créneau ? Tu es déjà présent : demande à un administrateur pour changer.</li></ul> },
+  { t: "Onglets et filtres", b: <ul><li><b>À pourvoir</b> : créneaux à venir où il manque du monde. Les créneaux annulés, complets ou qui chevauchent un de tes créneaux n'y figurent pas.</li><li><b>Mes créneaux</b> : ceux où tu es positionné ou référent.</li><li><b>Groupe</b> et <b>Mois</b> se cumulent. Un créneau multi-groupes apparaît sous chacun de ses groupes.</li><li>Mois par défaut : le premier mois avec des créneaux (À pourvoir) ou « Toute la saison » (Mes créneaux).</li><li>Rien à l'écran ? Reviens sur « Tous les groupes » et « Toute la saison ».</li></ul> },
+  { t: "Alerte urgent", b: <ul><li>Le bandeau rouge liste les créneaux des <b>48 prochaines heures</b> où il manque du monde. Touche une ligne pour l'ouvrir.</li><li>Il n'est jamais filtré par les boutons de groupe ou de mois.</li><li><b>Partager sur WhatsApp</b> prépare le message ; <b>Copier</b> le copie pour un SMS ou un mail.</li></ul> },
+  { t: "Bonne conduite", b: <ul><li>N'agis que sur <b>ton propre nom</b>.</li><li>En cas d'empêchement : <b>désinscris-toi dès que possible</b> et préviens le référent du créneau.</li><li>L'application se met à jour toute seule (toutes les 30 secondes et quand tu reviens dessus).</li></ul> },
+];
+const HELP_ADMIN = [
+  { t: "Accès et session", b: <ul><li>Onglet <b>Admin</b>, puis mot de passe administrateur (demande-le au responsable du club, ne le partage pas).</li><li>La session dure 12 heures. Touche <b>Se déconnecter</b> sur un appareil partagé.</li><li>Quatre onglets : <b>Créneaux</b>, <b>Vacances</b>, <b>Encadrants</b>, <b>Lieux</b>.</li></ul> },
+  { t: "Gérer les créneaux", b: <ul><li><b>Ajouter un créneau</b>, ou <b>Modifier</b>, <b>Annuler</b> / <b>Rétablir</b>, <b>Supprimer le créneau</b> sur chaque carte. <b>Afficher les créneaux passés</b> montre l'historique.</li><li><b>Groupes</b> : coche un ou plusieurs groupes (ex. Poussin + Pupille). Horaire, référents et besoin sont proposés à la création, puis modifiables.</li><li><b>Type</b> : VTT, ou Route si Compet ou Benjamin est coché.</li><li><b>Encadrants requis</b> : référents inclus. 0 annule le créneau.</li><li><b>Annuler</b> garde le créneau visible (badge « Annulé »). <b>Supprimer</b> est définitif et désinscrit tout le monde : préfère Annuler.</li></ul> },
+  { t: "Vacances scolaires", b: <ul><li>Les vacances démarrent le samedi soir : le premier samedi reste un entraînement normal (onglet Créneaux).</li><li>Onglet <b>Vacances</b> : <b>Ajouter un créneau pendant ces vacances</b> pour un stage ou une sortie exceptionnelle. La date est limitée à la période.</li></ul> },
+  { t: "Encadrants et référents", b: <ul><li><b>Ajouter</b> : nom, prénom et niveau. Un nom existant est refusé.</li><li><b>Renommer</b> garde les inscriptions et les rôles de référent. Le <b>niveau</b> se change dans la liste déroulante.</li><li><b>Retirer</b> (puis Confirmer) désinscrit la personne de tous ses créneaux. Si elle était référente, désigne-en un autre.</li><li>Les référents se choisissent dans le formulaire du créneau et comptent dans le nombre requis.</li></ul> },
+  { t: "Lieux", b: <ul><li>Onglet <b>Lieux</b> : <b>Ajouter le lieu</b>, <b>Renommer</b> (le nom change aussi sur les créneaux concernés) ou <b>Retirer</b>.</li><li>Retirer un lieu ne modifie pas les créneaux existants. Il doit toujours en rester un.</li><li>Dans le formulaire d'un créneau, un lieu libre peut aussi être saisi.</li></ul> },
+  { t: "Alerte urgent et WhatsApp", b: <ul><li>Le bandeau rouge couvre les créneaux des 48 prochaines heures où il manque du monde, pour les encadrants comme pour les admins.</li><li><b>Partager sur WhatsApp</b> prépare le message (créneaux, personnes manquantes, lien) ; l'envoi n'est jamais automatique. <b>Copier</b> permet de le coller ailleurs.</li></ul> },
+  { t: "Bonnes pratiques", b: <ul><li>Il n'y a pas de code personnel : n'importe qui peut agir sous un nom. Rappelle la règle de bonne conduite : n'agir que sur son propre nom.</li><li>Toute modification est visible par tous en moins de 30 secondes.</li><li>L'application refuse une inscription si le créneau est annulé, complet, ou si la personne est déjà positionnée à la même heure.</li></ul> },
+];
+
+function HelpSheet({ admin, onClose }) {
+  const sections = admin ? HELP_ADMIN : HELP_ENCADRANT;
+  const [open, setOpen] = useState(0);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/45" onClick={onClose} role="dialog" aria-modal="true" aria-label={admin ? "Aide administrateur" : "Aide encadrant"}>
+      <div className="w-full max-w-md max-h-[88vh] flex flex-col rounded-t-3xl sm:rounded-3xl bg-[#FAF7F0] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b border-[#E2DBC9]">
+          <div>
+            <p className="text-[11px] tracking-[0.15em] text-[#C1652F] font-bold uppercase">Aide</p>
+            <h2 className="font-display text-[22px] text-[#1B2430]">{admin ? "Guide administrateur" : "Guide encadrant"}</h2>
+          </div>
+          <button onClick={onClose} aria-label="Fermer l'aide" className="rounded-full bg-white border border-[#E2DBC9] p-2 text-[#1B2430]"><XIcon size={18} /></button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4 flex flex-col gap-2">
+          {sections.map((sec, i) => (
+            <div key={sec.t} className="shrink-0 rounded-2xl border border-[#E2DBC9] bg-white overflow-hidden">
+              <button onClick={() => setOpen(open === i ? -1 : i)} aria-expanded={open === i} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left">
+                <span className="text-[14.5px] font-bold text-[#1B2430]"><span className="text-[#C1652F] mr-2">{i + 1}</span>{sec.t}</span>
+                <span className="text-[#8A8371] text-[18px] leading-none">{open === i ? "–" : "+"}</span>
+              </button>
+              {open === i && <div className="px-4 pb-3 text-[13.5px] leading-relaxed text-[#3D3A30] help-body">{sec.b}</div>}
+            </div>
+          ))}
+          <p className="text-[11.5px] text-[#8A8371] mt-1">Une question ? Contacte un administrateur du club.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [data, setData] = useState(null);
   const [loadErr, setLoadErr] = useState("");
   const [notice, setNotice] = useState("");
   const [mode, setMode] = useState("encadrant");
+  const [helpOpen, setHelpOpen] = useState(false);
   const [adminOK, setAdminOK] = useState(() => !!getToken());
   const [identity, setIdentityState] = useState(() => { try { return localStorage.getItem(IDENTITY_KEY); } catch (e) { return null; } });
 
@@ -932,6 +1060,9 @@ function App() {
     renameEncadrant: (id, name) => call("admin/encadrant/rename", { id, name }),
     addEncadrant: (name, niveau) => call("admin/encadrant", { name, niveau }),
     removeEncadrant: (id) => quiet(call("admin/encadrant/remove", { id })),
+    addLieu: (name) => call("admin/lieu", { name }),
+    renameLieu: (name, newName) => call("admin/lieu/rename", { name, newName }),
+    removeLieu: (name) => quiet(call("admin/lieu/remove", { name })),
   };
 
   const encadrants = data ? data.encadrants : [];
@@ -946,8 +1077,13 @@ function App() {
   return (
     <div className="min-h-screen bg-[#FAF7F0]">
       <header className="sticky top-0 z-10 bg-[#1B2430] text-white px-5 pt-5 pb-4">
-        <p className="text-[11px] tracking-[0.15em] text-[#D98A57] font-bold uppercase mb-0.5">Brie Francilienne Triathlon</p>
-        <h1 className="font-display text-[24px]">Encadrement Jeunes</h1>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] tracking-[0.15em] text-[#D98A57] font-bold uppercase mb-0.5">Brie Francilienne Triathlon</p>
+            <h1 className="font-display text-[24px]">Encadrement Jeunes</h1>
+          </div>
+          <button onClick={() => setHelpOpen(true)} aria-label="Aide" className="shrink-0 flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/20 px-3 py-1.5 text-[13px] font-bold"><HelpCircle size={17} /> Aide</button>
+        </div>
         <div className="mt-4 flex rounded-xl bg-white/10 p-1 max-w-md">
           {[{ id: "encadrant", label: "Encadrant" }, { id: "admin", label: "Admin" }].map((m) => (
             <button key={m.id} onClick={() => setMode(m.id)}
@@ -957,6 +1093,7 @@ function App() {
           ))}
         </div>
       </header>
+      {helpOpen && <HelpSheet admin={mode === "admin" && adminOK} onClose={() => setHelpOpen(false)} />}
       {notice && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md z-30 rounded-2xl bg-[#B03A2E] text-white shadow-lg px-4 py-3 text-[13.5px] font-semibold" onClick={() => setNotice("")}>{notice}</div>
       )}
