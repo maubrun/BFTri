@@ -27,7 +27,7 @@
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
 
-const { useState, useMemo, useEffect, useCallback } = React;
+const { useState, useMemo, useEffect, useCallback, useRef } = React;
 
 /* =====================================================================
    CONFIGURATION
@@ -203,6 +203,7 @@ const Lock = (p) => <Icon {...p}><rect x="4" y="11" width="16" height="10" rx="2
 const Pencil = (p) => <Icon {...p}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></Icon>;
 const Ban = (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></Icon>;
 const Undo = (p) => <Icon {...p}><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></Icon>;
+const RefreshIcon = (p) => <Icon {...p}><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></Icon>;
 const HelpCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.2-2.5 3.9"/><path d="M12 17.2h.01"/></Icon>;
 const UsersIcon = (p) => <Icon {...p}><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"/></Icon>;
 const KindIcon = ({ type, size = 16 }) => (type === "vtt" ? <Bike size={size} /> : <RoadIcon size={size} />);
@@ -970,7 +971,7 @@ const HELP_ENCADRANT = [
   { t: "S'inscrire, se désinscrire", b: <ul><li>Ouvre le créneau puis touche <b>Je suis disponible</b>.</li><li><b>Ajouter à mon agenda</b> l'enregistre dans le calendrier du téléphone. <b>Exporter tous mes créneaux</b> (onglet Mes créneaux) exporte tout.</li><li>Pour te désinscrire : <b>Mes créneaux</b>, le créneau, puis <b>Me désinscrire</b>.</li><li>Refus possible si le créneau est annulé, vient d'être complété, ou si tu es déjà positionné à la même heure.</li><li>Référent d'un créneau ? Tu es déjà présent : demande à un administrateur pour changer.</li></ul> },
   { t: "Onglets et filtres", b: <ul><li><b>À pourvoir</b> : créneaux à venir où il manque du monde. Les créneaux annulés, complets ou qui chevauchent un de tes créneaux n'y figurent pas.</li><li><b>Mes créneaux</b> : ceux où tu es positionné ou référent.</li><li><b>Groupe</b> et <b>Mois</b> se cumulent. Un créneau multi-groupes apparaît sous chacun de ses groupes.</li><li>Mois par défaut : le premier mois avec des créneaux (À pourvoir) ou « Toute la saison » (Mes créneaux).</li><li>Rien à l'écran ? Reviens sur « Tous les groupes » et « Toute la saison ».</li></ul> },
   { t: "Alerte urgent", b: <ul><li>Le bandeau rouge liste les créneaux des <b>48 prochaines heures</b> où il manque du monde. Touche une ligne pour l'ouvrir.</li><li>Il n'est jamais filtré par les boutons de groupe ou de mois.</li><li><b>Partager sur WhatsApp</b> prépare le message ; <b>Copier</b> le copie pour un SMS ou un mail.</li></ul> },
-  { t: "Bonne conduite", b: <ul><li>N'agis que sur <b>ton propre nom</b>.</li><li>En cas d'empêchement : <b>désinscris-toi dès que possible</b> et préviens le référent du créneau.</li><li>L'application se met à jour toute seule (toutes les 30 secondes et quand tu reviens dessus).</li></ul> },
+  { t: "Bonne conduite", b: <ul><li>N'agis que sur <b>ton propre nom</b>.</li><li>En cas d'empêchement : <b>désinscris-toi dès que possible</b> et préviens le référent du créneau.</li><li>L'application se met à jour toute seule (à l'ouverture, après chacune de tes actions et via le bouton Actualiser (↻) en haut).</li></ul> },
 ];
 const HELP_ADMIN = [
   { t: "Accès et session", b: <ul><li>Onglet <b>Admin</b>, puis mot de passe administrateur (demande-le au responsable du club, ne le partage pas).</li><li>La session dure 12 heures. Touche <b>Se déconnecter</b> sur un appareil partagé.</li><li>Quatre onglets : <b>Créneaux</b>, <b>Vacances</b>, <b>Encadrants</b>, <b>Lieux</b>.</li></ul> },
@@ -979,7 +980,7 @@ const HELP_ADMIN = [
   { t: "Encadrants et référents", b: <ul><li><b>Ajouter</b> : nom, prénom et niveau. Un nom existant est refusé.</li><li><b>Renommer</b> garde les inscriptions et les rôles de référent. Le <b>niveau</b> se change dans la liste déroulante.</li><li><b>Retirer</b> (puis Confirmer) désinscrit la personne de tous ses créneaux. Si elle était référente, désigne-en un autre.</li><li>Les référents se choisissent dans le formulaire du créneau et comptent dans le nombre requis.</li></ul> },
   { t: "Lieux", b: <ul><li>Onglet <b>Lieux</b> : <b>Ajouter le lieu</b>, <b>Renommer</b> (le nom change aussi sur les créneaux concernés) ou <b>Retirer</b>.</li><li>Retirer un lieu ne modifie pas les créneaux existants. Il doit toujours en rester un.</li><li>Dans le formulaire d'un créneau, un lieu libre peut aussi être saisi.</li></ul> },
   { t: "Alerte urgent et WhatsApp", b: <ul><li>Le bandeau rouge couvre les créneaux des 48 prochaines heures où il manque du monde, pour les encadrants comme pour les admins.</li><li><b>Partager sur WhatsApp</b> prépare le message (créneaux, personnes manquantes, lien) ; l'envoi n'est jamais automatique. <b>Copier</b> permet de le coller ailleurs.</li></ul> },
-  { t: "Bonnes pratiques", b: <ul><li>Il n'y a pas de code personnel : n'importe qui peut agir sous un nom. Rappelle la règle de bonne conduite : n'agir que sur son propre nom.</li><li>Toute modification est visible par tous en moins de 30 secondes.</li><li>L'application refuse une inscription si le créneau est annulé, complet, ou si la personne est déjà positionnée à la même heure.</li></ul> },
+  { t: "Bonnes pratiques", b: <ul><li>Il n'y a pas de code personnel : n'importe qui peut agir sous un nom. Rappelle la règle de bonne conduite : n'agir que sur son propre nom.</li><li>Les modifications des autres n'apparaissent qu'à l'ouverture de l'application ou après un clic sur Actualiser (↻) ; l'application refuse toute inscription devenue impossible et se met alors à jour.</li><li>L'application refuse une inscription si le créneau est annulé, complet, ou si la personne est déjà positionnée à la même heure.</li></ul> },
 ];
 
 function HelpSheet({ admin, onClose }) {
@@ -1026,16 +1027,22 @@ function App() {
   const [adminOK, setAdminOK] = useState(() => !!getToken());
   const [identity, setIdentityState] = useState(() => { try { return localStorage.getItem(IDENTITY_KEY); } catch (e) { return null; } });
 
+  const lastFetch = useRef(0);
   const refresh = useCallback(async () => {
+    lastFetch.current = Date.now();
     try { const j = await api("state"); setData(j.state); setLoadErr(""); }
     catch (e) { setData((d) => { if (!d) setLoadErr(e.message); return d; }); }
   }, []);
+  // Aucun rafraîchissement en boucle (économie de crédits) : chargement à l'ouverture, après chaque action,
+  // au retour sur l'application si la dernière mise à jour date de plus d'1 h, et via le bouton « Actualiser ».
   useEffect(() => {
+    const STALE = 60 * 60000;
     refresh();
-    const t = setInterval(refresh, 30000);
-    const onVis = () => { if (document.visibilityState === "visible") refresh(); };
+    const onVis = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastFetch.current > STALE) refresh();
+    };
     document.addEventListener("visibilitychange", onVis);
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [refresh]);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(""), 6000); return () => clearTimeout(t); }, [notice]);
 
@@ -1082,6 +1089,7 @@ function App() {
             <p className="text-[11px] tracking-[0.15em] text-[#D98A57] font-bold uppercase mb-0.5">Brie Francilienne Triathlon</p>
             <h1 className="font-display text-[24px]">Encadrement Jeunes</h1>
           </div>
+          <button onClick={refresh} aria-label="Actualiser" title="Actualiser" className="shrink-0 flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/20 px-3 py-1.5 text-[13px] font-bold"><RefreshIcon size={17} /></button>
           <button onClick={() => setHelpOpen(true)} aria-label="Aide" className="shrink-0 flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/20 px-3 py-1.5 text-[13px] font-bold"><HelpCircle size={17} /> Aide</button>
         </div>
         <div className="mt-4 flex rounded-xl bg-white/10 p-1 max-w-md">

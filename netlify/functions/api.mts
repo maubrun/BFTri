@@ -82,8 +82,9 @@ function requireAdmin(req: Request) {
 
 /* ---------- Lecture de l'état complet ---------- */
 async function loadState(db: any) {
-  const encadrants = await db.sql`SELECT id, name, niveau FROM encadrants ORDER BY lower(name)`;
-  const sorties = await db.sql`
+  const [encadrants, sorties, lieuxRows] = await Promise.all([
+    db.sql`SELECT id, name, niveau FROM encadrants ORDER BY lower(name)`,
+    db.sql`
     SELECT s.id,
            to_char(s.jour, 'YYYY-MM-DD') AS date,
            s.heure AS time,
@@ -92,8 +93,9 @@ async function loadState(db: any) {
     FROM sorties s
     LEFT JOIN inscriptions i ON i.sortie_id = s.id
     GROUP BY s.id
-    ORDER BY s.jour, s.heure, s.id`;
-  const lieuxRows = await db.sql`SELECT name FROM lieux ORDER BY ordre, lower(name)`;
+    ORDER BY s.jour, s.heure, s.id`,
+    db.sql`SELECT name FROM lieux ORDER BY ordre, lower(name)`,
+  ]);
   return { encadrants, sorties, lieux: lieuxRows.map((r: any) => r.name) };
 }
 
